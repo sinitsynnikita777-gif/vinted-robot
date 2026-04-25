@@ -2,14 +2,8 @@ import requests
 import time
 import os
 
-PROXY = os.getenv("PROXY_URL")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-proxies = {
-    "http": PROXY,
-    "https": PROXY
-}
 
 def send(msg):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -17,19 +11,6 @@ def send(msg):
         "chat_id": CHAT_ID,
         "text": msg
     })
-
-# проверка прокси
-print("Testing proxy...")
-
-try:
-    r = requests.get("https://api.ipify.org?format=json", proxies=proxies, timeout=15)
-    print("Proxy OK:", r.text)
-    send(f"✅ Proxy works: {r.text}")
-except Exception as e:
-    print("❌ Proxy error:", e)
-    send(f"❌ Proxy error: {e}")
-    while True:
-        time.sleep(999)
 
 URL = "https://www.vinted.co.uk/api/v2/catalog/items"
 
@@ -48,12 +29,15 @@ params = {
 
 seen = set()
 
+print("🚀 Bot started")
+
 while True:
     try:
-        r = requests.get(URL, headers=headers, params=params, proxies=proxies, timeout=15)
+        r = requests.get(URL, headers=headers, params=params, timeout=15)
         print("STATUS:", r.status_code)
 
         if r.status_code != 200:
+            print("⛔ Blocked, retry later...")
             time.sleep(60)
             continue
 
