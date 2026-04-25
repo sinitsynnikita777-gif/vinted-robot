@@ -1,44 +1,65 @@
 import requests
 import time
 
-URL = "https://www.vinted.co.uk/api/v2/catalog/items"
+BASE_URL = "https://www.vinted.co.uk"
+API_URL = "https://www.vinted.co.uk/api/v2/catalog/items"
 
-HEADERS = {
+session = requests.Session()
+
+headers = {
     "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-GB,en;q=0.9",
 }
 
-PARAMS = {
-    "search_text": "rick owens",
-    "price_to": 150,
-    "per_page": 10,
-    "page": 1,
-    "order": "newest_first",
-}
+def get_token():
+    r = session.get(BASE_URL, headers=headers)
+    
+    # вытаскиваем токен из cookies
+    token = session.cookies.get("access_token_web")
+
+    if not token:
+        print("❌ token not found")
+    else:
+        print("✅ token found")
+
+    return token
+
+def fetch_items(token):
+    headers_api = headers.copy()
+    headers_api["Authorization"] = f"Bearer {token}"
+
+    params = {
+        "search_text": "rick owens",
+        "price_to": 150,
+        "per_page": 10,
+        "page": 1,
+        "order": "newest_first",
+    }
+
+    r = session.get(API_URL, headers=headers_api, params=params)
+
+    print("STATUS:", r.status_code)
+
+    if r.status_code != 200:
+        print(r.text[:200])
+        return
+
+    data = r.json()
+    items = data.get("items", [])
+
+    print("ITEMS:", len(items))
+
+    for item in items:
+        print(item["title"], item["price"], item["url"])
+
 
 while True:
     try:
-        r = requests.get(URL, params=PARAMS, headers=HEADERS, timeout=20)
+        token = get_token()
 
-        print("STATUS:", r.status_code)
-        print("TEXT START:", r.text[:100])
-
-        if r.status_code != 200:
-            print("bad status")
-            time.sleep(30)
-            continue
-
-        data = r.json()
-        items = data.get("items", [])
-
-        print("ITEMS:", len(items))
-
-        for item in items:
-            title = item.get("title")
-            price = item.get("price")
-            url = item.get("url")
-            print(title, price, url)
+        if token:
+            fetch_items(token)
 
         print("-----")
         time.sleep(30)
