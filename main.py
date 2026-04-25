@@ -62,9 +62,7 @@ SHOES_EU = list(range(42, 45))
 SHOES_UK = ["8", "8.5", "9", "9.5", "10"]
 SHOES_US = ["9", "9.5", "10", "10.5", "11"]
 
-ACCESSORIES_CATEGORIES = [
-    "Bags", "Belts", "Hats & Caps", "Jewellery", "Scarves & Gloves", "Sunglasses"
-]
+ACCESSORIES_CATEGORIES = ["Belts"]
 
 
 # =====================
@@ -135,49 +133,24 @@ SEARCHES = list(BRAND_ALIASES.keys())
 # =====================
 
 BAD_WORDS = [
-    # fake / bad condition
     "fake", "replica", "rep ", " reps", "ua",
     "inspired", "dupe", "custom", "customised", "customized",
     "bootleg", "not authentic", "not real", "aliexpress", "dhgate",
     "damaged", "ripped", "stains", "stained", "dirty", "poor condition",
     "hole", "holes", "destroyed", "needs repair", "flawed",
     "no tag", "no tags", "cut tag", "missing tag", "tag cut",
-
-    # kids
     "kids", "child", "junior", "youth", "boys", "girls",
-
-    # non-clothing junk
-    "book", "books", "magazine", "magazines",
-    "poster", "posters", "print", "art print",
-    "sticker", "stickers",
-    "cd", "dvd", "vinyl", "record",
-    "toy", "toys", "figure", "figurine",
-    "collectible", "collectibles",
-    "keyring", "keychain",
-    "phone case", "case",
-    "perfume", "cosmetic", "makeup",
-    "homeware", "decor", "decoration",
-    "mug", "cup", "plate",
-    "calendar", "notebook", "stationery",
 ]
 
-BLOCKED_CATEGORY_WORDS = [
-    "books",
-    "magazines",
-    "entertainment",
-    "home",
-    "toys",
-    "games",
-    "beauty",
-    "electronics",
-    "stationery",
-    "collectibles",
-    "music",
-    "films",
-    "dvds",
-    "cds",
-    "art",
-    "decor",
+JUNK_WORDS = [
+    "book", "books", "magazine", "magazines", "poster", "posters",
+    "sticker", "stickers", "cd", "dvd", "vinyl", "record",
+    "toy", "toys", "figure", "figurine", "collectible", "collectibles",
+    "wallet", "wallets", "purse", "bracelet", "necklace", "ring",
+    "keyring", "keychain", "phone case", "case", "perfume",
+    "cosmetic", "makeup", "homeware", "decor", "decoration",
+    "mug", "cup", "plate", "calendar", "notebook", "stationery",
+    "pin badge", "badge", "patch", "cards", "card",
 ]
 
 WOMEN_WORDS = ["women", "womens", "ladies", "girl", "girls", "female"]
@@ -195,12 +168,7 @@ CATEGORY_KEYWORDS = {
     "Shorts": ["shorts"],
     "Trainers": ["sneakers", "trainers"],
     "Boots": ["boots", "boot"],
-    "Bags": ["bag", "backpack", "tote", "messenger"],
     "Belts": ["belt"],
-    "Hats & Caps": ["cap", "hat", "beanie"],
-    "Sunglasses": ["sunglasses", "glasses"],
-    "Jewellery": ["ring", "necklace", "bracelet", "jewellery", "jewelry"],
-    "Scarves & Gloves": ["scarf", "gloves"],
 }
 
 GOOD_CATEGORIES = {
@@ -208,13 +176,19 @@ GOOD_CATEGORIES = {
     "Trainers", "Hoodies & Sweatshirts", "Knitwear & Jumpers"
 }
 
-ALLOWED_CATEGORY_WORDS = [
-    "clothing", "clothes", "men", "mens",
-    "t-shirts", "shirts", "tops", "hoodies", "sweatshirts",
-    "knitwear", "jumpers", "jackets", "coats",
-    "trousers", "jeans", "shorts",
-    "shoes", "trainers", "boots",
-    "bags", "belts", "hats", "caps", "jewellery", "accessories"
+ALLOWED_CLOTHING_WORDS = [
+    "t-shirt", "tee", "shirt", "top", "long sleeve", "hoodie", "sweatshirt",
+    "crewneck", "knit", "jumper", "cardigan", "sweater", "jacket", "coat",
+    "bomber", "puffer", "parka", "vest", "trousers", "pants", "cargo",
+    "jeans", "denim", "shorts", "trainers", "sneakers", "boots", "shoes",
+    "belt",
+]
+
+BLOCKED_CATEGORY_WORDS = [
+    "books", "magazines", "entertainment", "home", "toys", "games",
+    "beauty", "electronics", "stationery", "collectibles", "music",
+    "films", "dvds", "cds", "art", "decor", "jewellery", "jewelry",
+    "bags", "wallets", "purses", "accessories",
 ]
 
 
@@ -288,6 +262,13 @@ def full_text(item):
         item.get("catalog_path") or "",
     ]).lower()
 
+def category_text(item):
+    return " ".join([
+        str(item.get("catalog_title") or ""),
+        str(item.get("category_title") or ""),
+        str(item.get("catalog_path") or ""),
+    ]).lower()
+
 def clean_price(price):
     if isinstance(price, dict):
         return price.get("amount", 999)
@@ -330,12 +311,31 @@ def is_collab(item):
     text = full_text(item)
     return " x " in text or " collab" in text or "collaboration" in text
 
-def category_text(item):
-    return " ".join([
-        str(item.get("catalog_title") or ""),
-        str(item.get("category_title") or ""),
-        str(item.get("catalog_path") or ""),
-    ]).lower()
+def is_allowed_fashion_item(item):
+    text = full_text(item)
+    cat = category_text(item)
+
+    if "belt" in text or "belt" in cat:
+        return True
+
+    if any(word in cat for word in BLOCKED_CATEGORY_WORDS):
+        return False
+
+    if has_any(text, JUNK_WORDS):
+        return False
+
+    if any(word in text for word in ALLOWED_CLOTHING_WORDS):
+        return True
+
+    if any(word in cat for word in ALLOWED_CLOTHING_WORDS):
+        return True
+
+    # если категория неизвестна, но есть размер одежды — не режем слишком жёстко
+    size = (item.get("size_title") or "").lower()
+    if size in ["xs", "s", "m", "l", "xl", "xxl"] or size.startswith("w"):
+        return True
+
+    return False
 
 def is_bad_item(item):
     text = full_text(item)
@@ -346,15 +346,8 @@ def is_bad_item(item):
     if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
         return True
 
-    cat = category_text(item)
-
-    if any(word in cat for word in BLOCKED_CATEGORY_WORDS):
+    if not is_allowed_fashion_item(item):
         return True
-
-    # Extra protection: if Vinted gives a clear non-fashion category, skip it.
-    if cat and not any(word in cat for word in ALLOWED_CATEGORY_WORDS):
-        if any(word in text for word in ["book", "magazine", "poster", "toy", "vinyl", "cd", "dvd"]):
-            return True
 
     return False
 
@@ -781,8 +774,8 @@ def fetch(search):
         return []
 
 def main():
-    print("FINAL ENGLISH LABEL BOT STARTED")
-    send("FINAL ENGLISH LABEL BOT STARTED")
+    print("FINAL CLOTHING ONLY BOT STARTED")
+    send("FINAL CLOTHING ONLY BOT STARTED")
 
     refresh_cookies()
 
@@ -804,7 +797,7 @@ def main():
                     continue
 
                 if is_bad_item(item):
-                    print("SKIP JUNK:", item.get("title"))
+                    print("SKIP NON-CLOTHING/JUNK:", item.get("title"))
                     continue
 
                 brand, confidence = match_brand(item)
