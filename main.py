@@ -41,7 +41,7 @@ API = "https://www.vinted.co.uk/api/v2/catalog/items"
 
 MAX_PRICE = 150
 MAX_ITEM_AGE_HOURS = 24
-PER_PAGE = 10
+PER_PAGE = 20
 
 MIN_DELAY = 45
 MAX_DELAY = 115
@@ -161,8 +161,17 @@ JUNK_WORDS = [
     "pin badge", "badge", "patch", "cards", "card",
 ]
 
-WOMEN_WORDS = ["women", "womens", "ladies", "girl", "girls", "female"]
-UNISEX_WORDS = ["unisex", "mens", "men", "male", "oversized", "boxy"]
+WOMEN_WORDS = [
+    "women", "womens", "woman", "ladies", "lady",
+    "girl", "girls", "female", "femme",
+    "dress", "skirt", "bra", "heels", "blouse",
+    "crop top", "cropped", "mini dress"
+]
+
+UNISEX_WORDS = [
+    "unisex", "mens", "men", "male", "oversized",
+    "boxy", "boyfriend fit"
+]
 
 CATEGORY_KEYWORDS = {
     "T-shirts": ["t-shirt", "tee", "graphic tee"],
@@ -346,11 +355,18 @@ def is_allowed_fashion_item(item):
 
 def is_bad_item(item):
     text = full_text(item)
+    cat = category_text(item)
 
     if has_any(text, BAD_WORDS):
         return True
 
+    if has_any(text, JUNK_WORDS):
+        return True
+
     if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
+        return True
+
+    if ("women" in cat or "ladies" in cat or "girls" in cat) and not has_any(text, UNISEX_WORDS):
         return True
 
     if not is_allowed_fashion_item(item):
@@ -781,62 +797,67 @@ def fetch(search):
         return []
 
 def main():
-    print("FULL FINAL BOT STARTED")
-    send("FULL FINAL BOT STARTED")
+    print("FULL FINAL RANDOM BOT STARTED")
+    send("FULL FINAL RANDOM BOT STARTED")
 
     refresh_cookies()
 
     while True:
         random.shuffle(SEARCHES)
 
+        collected_items = []
+
         for search in SEARCHES:
             items = fetch(search)
 
             for item in items:
-                item_id = str(item.get("id"))
+                collected_items.append((search, item))
 
-                if not item_id or is_seen(item_id):
-                    continue
+            time.sleep(random.randint(8, 18))
 
-                save_seen(item_id)
+        random.shuffle(collected_items)
 
-                if not fresh_enough(item):
-                    continue
+        for search, item in collected_items:
+            item_id = str(item.get("id"))
 
-                if is_bad_item(item):
-                    print("SKIP NON-CLOTHING/JUNK:", item.get("title"))
-                    continue
+            if not item_id or is_seen(item_id):
+                continue
 
-                brand, confidence = match_brand(item)
-                if not brand:
-                    continue
+            save_seen(item_id)
 
-                market_low, market_high, comp_count = vinted_market_estimate(
-                    brand,
-                    item.get("title", ""),
-                    item_id
-                )
+            if not fresh_enough(item):
+                continue
 
-                score = score_item(item, brand, market_low, comp_count)
+            if is_bad_item(item):
+                print("SKIP WOMEN/JUNK:", item.get("title"))
+                continue
 
-                msg = format_item(
-                    item,
-                    search,
-                    brand,
-                    score,
-                    market_low,
-                    market_high,
-                    comp_count
-                )
+            brand, confidence = match_brand(item)
+            if not brand:
+                continue
 
-                print(msg)
-                send(msg)
+            market_low, market_high, comp_count = vinted_market_estimate(
+                brand,
+                item.get("title", ""),
+                item_id
+            )
 
-                time.sleep(random.randint(3, 9))
+            score = score_item(item, brand, market_low, comp_count)
 
-            delay = random.randint(MIN_DELAY, MAX_DELAY)
-            print("SLEEP:", delay)
-            time.sleep(delay)
+            msg = format_item(
+                item,
+                search,
+                brand,
+                score,
+                market_low,
+                market_high,
+                comp_count
+            )
+
+            print(msg)
+            send(msg)
+
+            time.sleep(random.randint(8, 20))
 
         long_delay = random.randint(CYCLE_DELAY_MIN, CYCLE_DELAY_MAX)
         print("CYCLE DONE. SLEEP:", long_delay)
