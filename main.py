@@ -346,23 +346,23 @@ def age_text(item):
 
 
 # =====================
-# BADGES WITH LABELS
+# BADGES WITH ENGLISH LABELS
 # =====================
 
 def price_badge(price):
     p = price_float(price)
     if p <= 50:
-        return "🟢 до £50"
+        return "🟢 under £50"
     if p <= 100:
-        return "🟡🟡 до £100"
-    return "🔴🔴🔴 до £150"
+        return "🟡🟡 under £100"
+    return "🔴🔴🔴 under £150"
 
 def market_confidence_label(comp_count):
     if comp_count >= 7:
-        return "🟢🟢🟢 уверенно"
+        return "🟢🟢🟢 strong"
     if comp_count >= 3:
-        return "🟡🟡 средне"
-    return "🔴 мало данных"
+        return "🟡🟡 average"
+    return "🔴 low data"
 
 def profit_badge_label(price, market_low):
     if not market_low:
@@ -372,10 +372,10 @@ def profit_badge_label(price, market_low):
     profit = market_low - p
 
     if profit >= 60:
-        return "🟢🟢🟢 высокий"
+        return "🟢🟢🟢 high"
     if profit >= 20:
-        return "🟡🟡 норм"
-    return "🔴 слабый"
+        return "🟡🟡 decent"
+    return "🔴 low"
 
 def demand_badge_label(item, category):
     favs = item.get("favourite_count") or item.get("favorites_count") or 0
@@ -391,10 +391,10 @@ def demand_badge_label(item, category):
         score += 1
 
     if score >= 3:
-        return "🟢🟢🟢 высокий"
+        return "🟢🟢🟢 high"
     if score >= 1:
-        return "🟡🟡 норм"
-    return "🔴 слабый"
+        return "🟡🟡 decent"
+    return "🔴 low"
 
 def freshness_badge_label(item):
     age = age_hours(item)
@@ -402,19 +402,19 @@ def freshness_badge_label(item):
     if age is None:
         return "🟡🟡 unknown"
     if age <= 1:
-        return "🟢🟢🟢 новая"
+        return "🟢🟢🟢 new"
     if age <= 6:
-        return "🟡🟡 свежая"
-    return "🔴 до 24h"
+        return "🟡🟡 recent"
+    return "🔴 older"
 
 def condition_badge_label(item):
     condition = (item.get("status") or item.get("status_title") or "").lower()
 
     if "new" in condition or "very good" in condition:
-        return "🟢🟢🟢 хорошее"
+        return "🟢🟢🟢 good"
     if "good" in condition:
-        return "🟡🟡 норм"
-    return "🔴 слабое"
+        return "🟡🟡 ok"
+    return "🔴 weak"
 
 def risk_badge_and_text(item, brand, market_low):
     price = price_float(item.get("price"))
@@ -425,25 +425,25 @@ def risk_badge_and_text(item, brand, market_low):
 
     if brand in POPULAR_BRANDS and price <= 30:
         points += 2
-        reasons.append("очень дешево")
+        reasons.append("too cheap")
 
     if market_low and price < market_low * 0.35:
         points += 2
-        reasons.append("сильно ниже рынка")
+        reasons.append("below market")
 
     if "no tag" in text or "missing tag" in text or "cut tag" in text:
         points += 2
-        reasons.append("бирки")
+        reasons.append("no tags")
 
     if is_collab(item):
         points += 1
-        reasons.append("коллаб")
+        reasons.append("collab")
 
     if points >= 4:
-        return "🔴🔴🔴 высокий", ", ".join(reasons) or "high"
+        return "🔴🔴🔴 high", ", ".join(reasons) or "high"
     if points >= 2:
-        return "🟡🟡 средний", ", ".join(reasons) or "medium"
-    return "🟢 низкий", "ok"
+        return "🟡🟡 medium", ", ".join(reasons) or "medium"
+    return "🟢 low", "ok"
 
 
 # =====================
@@ -458,19 +458,19 @@ def size_match(item, category):
         return "🟡🟡 unknown", "unknown"
 
     if category in ACCESSORIES_CATEGORIES:
-        return "🟢 любой", size
+        return "🟢 any", size
 
     if category in ["T-shirts", "Shirts", "Long sleeve tops", "Knitwear & Jumpers"]:
         ok = any(s == size or f" {s} " in f" {size} " for s in TOP_SIZES)
-        return ("🟢 подходит" if ok else "🔴 не твой"), size
+        return ("🟢 fits" if ok else "🔴 not your size"), size
 
     if category in ["Hoodies & Sweatshirts"]:
         ok = any(s == size or f" {s} " in f" {size} " for s in HOODIE_SIZES)
-        return ("🟢 подходит" if ok else "🔴 не твой"), size
+        return ("🟢 fits" if ok else "🔴 not your size"), size
 
     if category in ["Jackets & Coats"]:
         ok = any(s == size or f" {s} " in f" {size} " for s in OUTERWEAR_SIZES)
-        return ("🟢 подходит" if ok else "🔴 не твой"), size
+        return ("🟢 fits" if ok else "🔴 not your size"), size
 
     if category in ["Trousers", "Jeans", "Shorts"]:
         ok = False
@@ -485,7 +485,7 @@ def size_match(item, category):
         if any(eu in size for eu in PANTS_EU):
             ok = True
 
-        return ("🟢 подходит" if ok else "🔴 не твой"), size
+        return ("🟢 fits" if ok else "🔴 not your size"), size
 
     if category in ["Trainers", "Boots"]:
         ok = False
@@ -502,9 +502,9 @@ def size_match(item, category):
             if f"us {us}" in text or f"us{us}" in text:
                 ok = True
 
-        return ("🟢 подходит" if ok else "🔴 не твой"), size
+        return ("🟢 fits" if ok else "🔴 not your size"), size
 
-    return "🟡🟡 неизвестно", size
+    return "🟡🟡 unknown", size
 
 
 # =====================
@@ -636,7 +636,6 @@ def format_item(item, search, brand, score, market_low, market_high, comp_count)
     title = item.get("title", "No title")
     price = price_float(item.get("price"))
     condition = item.get("status") or item.get("status_title") or "?"
-    favs = item.get("favourite_count") or item.get("favorites_count") or 0
     url = item.get("url") or f"https://www.vinted.co.uk/items/{item.get('id')}"
     category = detect_category(item)
 
@@ -654,22 +653,22 @@ def format_item(item, search, brand, score, market_low, market_high, comp_count)
 
     prefix = "!!! " if super_signal(score, item, market_low) else ""
 
-    return f"""{prefix}Цена: {price_badge(price)} | Оценка: {score}/100 | Риск: {risk_badge}
+    return f"""{prefix}Price: {price_badge(price)} | Score: {score}/100 | Risk: {risk_badge}
 
 {brand}
 {title}
 £{price}
 
-Рынок: {market_confidence_label(comp_count)} ({market})
-Профит: {profit_badge_label(price, market_low)} ({profit})
-Спрос: {demand_badge_label(item, category)}
+Market: {market_confidence_label(comp_count)} ({market})
+Profit: {profit_badge_label(price, market_low)} ({profit})
+Demand: {demand_badge_label(item, category)}
 
-Свежесть: {freshness_badge_label(item)} ({age_text(item)})
-Состояние: {condition_badge_label(item)} ({condition})
-Размер: {size_badge} ({size_value})
-Категория: {category}
+Freshness: {freshness_badge_label(item)} ({age_text(item)})
+Condition: {condition_badge_label(item)} ({condition})
+Size: {size_badge} ({size_value})
+Category: {category}
 
-Риск-факторы: {risk_text}
+Risk notes: {risk_text}
 
 {url}
 """
@@ -714,8 +713,8 @@ def fetch(search):
         return []
 
 def main():
-    print("FINAL LABEL BOT STARTED")
-    send("FINAL LABEL BOT STARTED")
+    print("FINAL ENGLISH LABEL BOT STARTED")
+    send("FINAL ENGLISH LABEL BOT STARTED")
 
     refresh_cookies()
 
