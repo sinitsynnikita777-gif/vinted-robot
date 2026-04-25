@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 # TELEGRAM
 # =====================
 
-BOT_TOKEN = "PASTE_BOT_TOKEN"
+BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 
 CHAT_IDS = [
     "8104561365",
