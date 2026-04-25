@@ -135,13 +135,49 @@ SEARCHES = list(BRAND_ALIASES.keys())
 # =====================
 
 BAD_WORDS = [
+    # fake / bad condition
     "fake", "replica", "rep ", " reps", "ua",
     "inspired", "dupe", "custom", "customised", "customized",
     "bootleg", "not authentic", "not real", "aliexpress", "dhgate",
     "damaged", "ripped", "stains", "stained", "dirty", "poor condition",
     "hole", "holes", "destroyed", "needs repair", "flawed",
-    "kids", "child", "junior", "youth", "boys", "girls",
     "no tag", "no tags", "cut tag", "missing tag", "tag cut",
+
+    # kids
+    "kids", "child", "junior", "youth", "boys", "girls",
+
+    # non-clothing junk
+    "book", "books", "magazine", "magazines",
+    "poster", "posters", "print", "art print",
+    "sticker", "stickers",
+    "cd", "dvd", "vinyl", "record",
+    "toy", "toys", "figure", "figurine",
+    "collectible", "collectibles",
+    "keyring", "keychain",
+    "phone case", "case",
+    "perfume", "cosmetic", "makeup",
+    "homeware", "decor", "decoration",
+    "mug", "cup", "plate",
+    "calendar", "notebook", "stationery",
+]
+
+BLOCKED_CATEGORY_WORDS = [
+    "books",
+    "magazines",
+    "entertainment",
+    "home",
+    "toys",
+    "games",
+    "beauty",
+    "electronics",
+    "stationery",
+    "collectibles",
+    "music",
+    "films",
+    "dvds",
+    "cds",
+    "art",
+    "decor",
 ]
 
 WOMEN_WORDS = ["women", "womens", "ladies", "girl", "girls", "female"]
@@ -171,6 +207,15 @@ GOOD_CATEGORIES = {
     "Jackets & Coats", "Trousers", "Jeans", "Boots",
     "Trainers", "Hoodies & Sweatshirts", "Knitwear & Jumpers"
 }
+
+ALLOWED_CATEGORY_WORDS = [
+    "clothing", "clothes", "men", "mens",
+    "t-shirts", "shirts", "tops", "hoodies", "sweatshirts",
+    "knitwear", "jumpers", "jackets", "coats",
+    "trousers", "jeans", "shorts",
+    "shoes", "trainers", "boots",
+    "bags", "belts", "hats", "caps", "jewellery", "accessories"
+]
 
 
 # =====================
@@ -238,6 +283,9 @@ def full_text(item):
         item.get("brand_title") or "",
         item.get("size_title") or "",
         item.get("status") or "",
+        item.get("catalog_title") or "",
+        item.get("category_title") or "",
+        item.get("catalog_path") or "",
     ]).lower()
 
 def clean_price(price):
@@ -282,6 +330,13 @@ def is_collab(item):
     text = full_text(item)
     return " x " in text or " collab" in text or "collaboration" in text
 
+def category_text(item):
+    return " ".join([
+        str(item.get("catalog_title") or ""),
+        str(item.get("category_title") or ""),
+        str(item.get("catalog_path") or ""),
+    ]).lower()
+
 def is_bad_item(item):
     text = full_text(item)
 
@@ -290,6 +345,16 @@ def is_bad_item(item):
 
     if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
         return True
+
+    cat = category_text(item)
+
+    if any(word in cat for word in BLOCKED_CATEGORY_WORDS):
+        return True
+
+    # Extra protection: if Vinted gives a clear non-fashion category, skip it.
+    if cat and not any(word in cat for word in ALLOWED_CATEGORY_WORDS):
+        if any(word in text for word in ["book", "magazine", "poster", "toy", "vinyl", "cd", "dvd"]):
+            return True
 
     return False
 
@@ -536,6 +601,9 @@ def vinted_market_estimate(brand, title, current_id):
             if str(item.get("id")) == str(current_id):
                 continue
 
+            if is_bad_item(item):
+                continue
+
             p = price_float(item.get("price"))
             if 5 <= p <= 300:
                 prices.append(p)
@@ -736,6 +804,7 @@ def main():
                     continue
 
                 if is_bad_item(item):
+                    print("SKIP JUNK:", item.get("title"))
                     continue
 
                 brand, confidence = match_brand(item)
