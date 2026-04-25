@@ -9,22 +9,27 @@ from difflib import SequenceMatcher
 # TELEGRAM
 # =====================
 
-BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
-CHAT_ID = "8104561365"
+BOT_TOKEN = "PASTE_BOT_TOKEN"
+
+CHAT_IDS = [
+    "8104561365",
+    "1508784719"
+]
 
 def send(msg):
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "disable_web_page_preview": False,
-            },
-            timeout=15
-        )
-    except Exception as e:
-        print("TG ERROR:", e)
+    for chat_id in CHAT_IDS:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                data={
+                    "chat_id": chat_id,
+                    "text": msg,
+                    "disable_web_page_preview": False,
+                },
+                timeout=15
+            )
+        except Exception as e:
+            print("TG ERROR:", e)
 
 
 # =====================
@@ -42,6 +47,9 @@ MIN_DELAY = 45
 MAX_DELAY = 115
 CYCLE_DELAY_MIN = 180
 CYCLE_DELAY_MAX = 420
+
+BLOCK_SLEEP_MIN = 900
+BLOCK_SLEEP_MAX = 1800
 
 DB_PATH = "seen.db"
 
@@ -89,7 +97,7 @@ BRAND_ALIASES = {
     "Julius": ["julius", "julius 7"],
     "Miu Miu": ["miu miu", "miumiu"],
     "Takahiromiyashita The Soloist": ["takahiromiyashita the soloist", "the soloist", "soloist", "tts"],
-    "Cav Empt": ["cav empt", "cavempt", "c.e"],
+    "Cav Empt": ["cav empt", "cavempt", "c.e", "ce cav empt"],
     "If Six Was Nine": ["if six was nine", "ifsixwasnine", "iswn"],
     "In The Attic": ["in the attic", "ita"],
     "West Coast Choppers": ["west coast choppers", "wcc"],
@@ -330,7 +338,6 @@ def is_allowed_fashion_item(item):
     if any(word in cat for word in ALLOWED_CLOTHING_WORDS):
         return True
 
-    # если категория неизвестна, но есть размер одежды — не режем слишком жёстко
     size = (item.get("size_title") or "").lower()
     if size in ["xs", "s", "m", "l", "xl", "xxl"] or size.startswith("w"):
         return True
@@ -404,7 +411,7 @@ def age_text(item):
 
 
 # =====================
-# BADGES WITH ENGLISH LABELS
+# LABELS
 # =====================
 
 def price_badge(price):
@@ -505,7 +512,7 @@ def risk_badge_and_text(item, brand, market_low):
 
 
 # =====================
-# SMART SIZE FILTER
+# SIZE FILTER
 # =====================
 
 def size_match(item, category):
@@ -757,7 +764,7 @@ def fetch(search):
         print(search, "STATUS:", r.status_code)
 
         if r.status_code in [401, 403, 429]:
-            sleep_time = random.randint(900, 1800)
+            sleep_time = random.randint(BLOCK_SLEEP_MIN, BLOCK_SLEEP_MAX)
             print("BLOCKED. SLEEP:", sleep_time)
             refresh_cookies()
             time.sleep(sleep_time)
@@ -774,8 +781,8 @@ def fetch(search):
         return []
 
 def main():
-    print("FINAL CLOTHING ONLY BOT STARTED")
-    send("FINAL CLOTHING ONLY BOT STARTED")
+    print("FULL FINAL BOT STARTED")
+    send("FULL FINAL BOT STARTED")
 
     refresh_cookies()
 
