@@ -18,7 +18,7 @@ def send(msg):
         "text": msg
     })
 
-# 🔍 ТЕСТ ПРОКСИ
+# проверка прокси
 print("Testing proxy...")
 
 try:
@@ -31,7 +31,6 @@ except Exception as e:
     while True:
         time.sleep(999)
 
-# 🔥 VINTED
 URL = "https://www.vinted.co.uk/api/v2/catalog/items"
 
 headers = {
@@ -71,7 +70,6 @@ while True:
 
             text = f"{item['title']}\n£{item['price']}\n{item['url']}"
             print(text)
-
             send(text)
 
         time.sleep(30)
