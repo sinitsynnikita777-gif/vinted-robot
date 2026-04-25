@@ -3,6 +3,8 @@ import time
 import os
 
 PROXY = os.getenv("PROXY_URL")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 proxies = {
     "http": PROXY,
@@ -18,11 +20,20 @@ headers = {
 }
 
 params = {
-    "search_text": "rick owens",
+    "search_text": "",
     "price_to": 150,
     "per_page": 10,
     "order": "newest_first",
 }
+
+seen = set()
+
+def send(msg):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "text": msg
+    })
 
 while True:
     try:
@@ -30,7 +41,6 @@ while True:
         print("STATUS:", r.status_code)
 
         if r.status_code != 200:
-            print("blocked, retry...")
             time.sleep(60)
             continue
 
@@ -38,9 +48,18 @@ while True:
         items = data.get("items", [])
 
         for item in items:
-            print(item["title"], item["price"], item["url"])
+            item_id = item["id"]
 
-        print("------")
+            if item_id in seen:
+                continue
+
+            seen.add(item_id)
+
+            text = f"{item['title']}\n£{item['price']}\n{item['url']}"
+            print(text)
+
+            send(text)
+
         time.sleep(30)
 
     except Exception as e:
