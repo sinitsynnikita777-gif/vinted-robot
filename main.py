@@ -11,6 +11,27 @@ proxies = {
     "https": PROXY
 }
 
+def send(msg):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "text": msg
+    })
+
+# 🔍 ТЕСТ ПРОКСИ
+print("Testing proxy...")
+
+try:
+    r = requests.get("https://api.ipify.org?format=json", proxies=proxies, timeout=15)
+    print("Proxy OK:", r.text)
+    send(f"✅ Proxy works: {r.text}")
+except Exception as e:
+    print("❌ Proxy error:", e)
+    send(f"❌ Proxy error: {e}")
+    while True:
+        time.sleep(999)
+
+# 🔥 VINTED
 URL = "https://www.vinted.co.uk/api/v2/catalog/items"
 
 headers = {
@@ -27,13 +48,6 @@ params = {
 }
 
 seen = set()
-
-def send(msg):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    requests.post(url, data={
-        "chat_id": CHAT_ID,
-        "text": msg
-    })
 
 while True:
     try:
