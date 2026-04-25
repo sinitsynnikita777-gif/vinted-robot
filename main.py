@@ -417,14 +417,6 @@ def fresh_enough(item):
         return True
     return age <= MAX_ITEM_AGE_HOURS
 
-def age_text(item):
-    age = age_hours(item)
-    if age is None:
-        return "unknown"
-    if age < 1:
-        return f"{int(age * 60)}m"
-    return f"{round(age, 1)}h"
-
 
 # =====================
 # LABELS
@@ -478,15 +470,7 @@ def demand_badge_label(item, category):
     return "🔴 low"
 
 def freshness_badge_label(item):
-    age = age_hours(item)
-
-    if age is None:
-        return "🟡🟡 unknown"
-    if age <= 1:
-        return "🟢🟢🟢 new"
-    if age <= 6:
-        return "🟡🟡 recent"
-    return "🔴 older"
+    return "🟢 newest"
 
 def condition_badge_label(item):
     condition = (item.get("status") or item.get("status_title") or "").lower()
@@ -678,16 +662,6 @@ def score_item(item, brand, market_low, comp_count):
     if category in GOOD_CATEGORIES:
         score += 7
 
-    age = age_hours(item)
-
-    if age is not None:
-        if age <= 1:
-            score += 10
-        elif age <= 6:
-            score += 6
-        elif age <= 24:
-            score += 2
-
     if is_collab(item):
         score += 4
 
@@ -701,12 +675,11 @@ def score_item(item, brand, market_low, comp_count):
 
 def super_signal(score, item, market_low):
     price = price_float(item.get("price"))
-    age = age_hours(item)
 
     if score >= 88:
         return True
 
-    if market_low and price < market_low * 0.55 and age is not None and age <= 1:
+    if market_low and price < market_low * 0.55:
         return True
 
     return False
@@ -747,7 +720,7 @@ Market: {market_confidence_label(comp_count)} ({market})
 Profit: {profit_badge_label(price, market_low)} ({profit})
 Demand: {demand_badge_label(item, category)}
 
-Freshness: {freshness_badge_label(item)} ({age_text(item)})
+Freshness: {freshness_badge_label(item)}
 Condition: {condition_badge_label(item)} ({condition})
 Size: {size_badge} ({size_value})
 Category: {category}
