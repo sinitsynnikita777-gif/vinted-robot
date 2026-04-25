@@ -9,8 +9,8 @@ from difflib import SequenceMatcher
 # TELEGRAM
 # =====================
 
-BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
-CHAT_ID = "ВСТАВЬ_CHAT_ID"
+BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
+CHAT_ID = "8104561365"
 
 def send(msg):
     try:
