@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 # ================= CONFIG =================
 
 BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
-CHAT_IDS = ["8104561365", "1508784719"]
+CHAT_IDS = ["8104561365", "1508784719","7552373815"]
 
 MAX_PRICE = 150
 
