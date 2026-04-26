@@ -16,11 +16,14 @@ MAX_ITEM_AGE_MINUTES = 90
 UNKNOWN_AGE_MAX_LIKES = 5
 UNKNOWN_AGE_MAX_POSITION = 30
 
-PER_PAGE = 80
-MAX_PER_CYCLE = 30
+PER_PAGE = 30
+MAX_PER_CYCLE = 40
+
 DOMAINS_PER_CYCLE = 2
+BRANDS_PER_CYCLE = 10
 
 REQUEST_DELAY = (1.5, 3.5)
+BRAND_DELAY = (3, 7)
 DOMAIN_DELAY = (6, 12)
 CYCLE_DELAY = (60, 120)
 
@@ -117,6 +120,9 @@ BRANDS_MAP = {
     "Vivienne Westwood": ["vivienne westwood"],
     "Balenciaga": ["balenciaga"],
 }
+
+TARGETED_SEARCHES = list(BRANDS_MAP.keys())
+brand_queue = []
 
 TOP_BRANDS = [
     "Rick Owens",
@@ -607,6 +613,20 @@ def format_msg(item):
 
     return msg
 
+# ================= BRAND QUEUE =================
+
+def get_next_brands():
+    global brand_queue
+
+    if len(brand_queue) < BRANDS_PER_CYCLE:
+        brand_queue = TARGETED_SEARCHES[:]
+        random.shuffle(brand_queue)
+
+    selected = brand_queue[:BRANDS_PER_CYCLE]
+    brand_queue = brand_queue[BRANDS_PER_CYCLE:]
+
+    return selected
+
 # ================= ANTI-BLOCK =================
 
 def domain_is_blocked(base):
@@ -646,7 +666,7 @@ def global_cooldown_if_needed():
 
 # ================= FETCH =================
 
-def fetch_latest(base):
+def fetch_search(base, search):
     if domain_is_blocked(base):
         print("SKIP BLOCKED DOMAIN:", base)
         return []
@@ -654,6 +674,7 @@ def fetch_latest(base):
     url = f"{base}/api/v2/catalog/items"
 
     params = {
+        "search_text": search,
         "price_to": MAX_PRICE,
         "per_page": PER_PAGE,
         "page": 1,
@@ -662,7 +683,7 @@ def fetch_latest(base):
 
     try:
         r = session.get(url, params=params, headers=headers(base), timeout=25)
-        print(base, "LATEST", r.status_code)
+        print(base, "SEARCH", search, r.status_code)
 
         if r.status_code in [401, 403, 429]:
             block_domain(base)
@@ -684,14 +705,14 @@ def fetch_latest(base):
         return items
 
     except Exception as e:
-        print("FETCH ERROR:", e)
+        print("SEARCH ERROR:", e)
         return []
 
 # ================= MAIN =================
 
 def run():
-    print("FINAL STABLE FLOW BOT STARTED")
-    send("FINAL STABLE FLOW BOT STARTED")
+    print("FINAL BRAND ROUND-ROBIN BOT STARTED")
+    send("FINAL BRAND ROUND-ROBIN BOT STARTED")
 
     for base in VINTED_BASES:
         refresh_cookies(base)
@@ -714,9 +735,14 @@ def run():
                 time.sleep(60)
                 continue
 
+            targeted = get_next_brands()
+
             for base in bases:
-                items = fetch_latest(base)
-                collected.extend(items)
+                for search in targeted:
+                    items = fetch_search(base, search)
+                    collected.extend(items)
+                    time.sleep(random.uniform(*BRAND_DELAY))
+
                 time.sleep(random.uniform(*DOMAIN_DELAY))
 
             processed = []
