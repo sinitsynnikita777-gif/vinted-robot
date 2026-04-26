@@ -3,37 +3,35 @@ import random
 import sqlite3
 import requests
 from datetime import datetime, timezone
-from difflib import SequenceMatcher
 
 # ================= CONFIG =================
 
-BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
+BOT_TOKEN = "YOUR_TOKEN"
 CHAT_IDS = ["8104561365", "1508784719"]
 
 MAX_PRICE = 150
-MAX_ITEM_AGE_MINUTES = 30
+MAX_ITEM_AGE_MINUTES = 45
 
-UNKNOWN_AGE_MAX_LIKES = 1
-UNKNOWN_AGE_MAX_POSITION = 8
+UNKNOWN_AGE_MAX_LIKES = 2
+UNKNOWN_AGE_MAX_POSITION = 10
 
-PER_PAGE = 20
-MAX_PER_CYCLE = 25
+PER_PAGE = 80
+MAX_PER_CYCLE = 30
 
-REQUEST_DELAY = (4, 9)
-BRAND_DELAY = (7, 15)
-DOMAIN_DELAY = (20, 40)
-CYCLE_DELAY = (120, 240)
+REQUEST_DELAY = (0.8, 2)
+DOMAIN_DELAY = (1, 3)
+CYCLE_DELAY = (15, 30)
 BLOCK_SLEEP = (900, 1800)
 
 DB_PATH = "seen.db"
 
 VINTED_BASES = [
-    "https://www.vinted.co.uk",  # UK
-    "https://www.vinted.ie",     # Ireland
-    "https://www.vinted.fr",     # France
-    "https://www.vinted.es",     # Spain
-    "https://www.vinted.be",     # Belgium
-    "https://www.vinted.nl",     # Netherlands
+    "https://www.vinted.co.uk",
+    "https://www.vinted.ie",
+    "https://www.vinted.fr",
+    "https://www.vinted.es",
+    "https://www.vinted.be",
+    "https://www.vinted.nl",
 ]
 
 ALLOWED_COUNTRIES = ["gb", "uk", "ie", "fr", "es", "be", "nl"]
@@ -115,8 +113,6 @@ BRANDS_MAP = {
     "Balenciaga": ["balenciaga"],
 }
 
-SEARCHES = list(BRANDS_MAP.keys())
-
 TOP_BRANDS = [
     "Rick Owens",
     "Rick Owens DRKSHDW",
@@ -165,9 +161,10 @@ CLOTHING_WORDS = [
     "bomber", "puffer", "parka", "vest", "trousers", "pants", "cargo",
     "jeans", "denim", "shorts", "trainers", "sneakers", "boots", "shoes",
     "backpack", "rucksack", "belt",
+    "sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles",
 ]
 
-# ================= STORAGE =================
+# ================= DATABASE =================
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
@@ -194,12 +191,12 @@ def cleanup_seen():
     WHERE id NOT IN (
         SELECT id FROM seen_items
         ORDER BY created_at DESC
-        LIMIT 5000
+        LIMIT 8000
     )
     """)
     conn.commit()
 
-# ================= SESSION / ANTIBAN =================
+# ================= SESSION =================
 
 session = requests.Session()
 
@@ -225,7 +222,7 @@ def refresh_cookies(base):
     try:
         r = session.get(base, headers=headers(base), timeout=20)
         print("REFRESH:", base, r.status_code)
-        time.sleep(random.uniform(2, 5))
+        time.sleep(random.uniform(1, 2.5))
     except Exception as e:
         print("REFRESH ERROR:", e)
 
@@ -236,11 +233,15 @@ def send(msg):
 
     for chat in CHAT_IDS:
         try:
-            requests.post(url, json={
-                "chat_id": chat,
-                "text": msg,
-                "disable_web_page_preview": False
-            }, timeout=15)
+            requests.post(
+                url,
+                json={
+                    "chat_id": chat,
+                    "text": msg,
+                    "disable_web_page_preview": False,
+                },
+                timeout=15
+            )
         except Exception as e:
             print("TG ERROR:", e)
 
@@ -278,23 +279,12 @@ def has_any(text, words):
     return any(w in text for w in words)
 
 def detect_brand(text):
-    t = norm(text)
-
-    best_brand = None
-    best_score = 0
+    text = norm(text)
 
     for brand, variants in BRANDS_MAP.items():
         for variant in variants:
-            if variant in t:
+            if variant in text:
                 return brand
-
-            score = SequenceMatcher(None, variant, t).ratio()
-            if score > best_score:
-                best_score = score
-                best_brand = brand
-
-    if best_score >= 0.72:
-        return best_brand
 
     return None
 
@@ -327,8 +317,7 @@ def is_shipping_ok(item):
     if country:
         return country in ALLOWED_COUNTRIES
 
-    base = item.get("source_base")
-    return base in VINTED_BASES
+    return item.get("source_base") in VINTED_BASES
 
 def parse_created_at(item):
     for key in [
@@ -403,19 +392,17 @@ def is_junk(item):
     return has_any(full_text(item), JUNK_WORDS)
 
 def is_mens_clothing_or_shoes(item):
-    text = full_text(item)
-
-    if "backpack" in text or "rucksack" in text:
-        return True
-
-    if "belt" in text:
-        return True
-
-    return has_any(text, CLOTHING_WORDS)
+    return has_any(full_text(item), CLOTHING_WORDS)
 
 def category(item):
     text = full_text(item)
 
+    if any(x in text for x in ["sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles"]):
+        return "Eyewear"
+    if "backpack" in text or "rucksack" in text:
+        return "Backpack"
+    if "belt" in text:
+        return "Belt"
     if "hoodie" in text or "sweatshirt" in text:
         return "Hoodie/Sweatshirt"
     if "jacket" in text or "coat" in text or "bomber" in text or "puffer" in text:
@@ -428,10 +415,6 @@ def category(item):
         return "Boots"
     if "sneakers" in text or "trainers" in text or "shoes" in text:
         return "Shoes"
-    if "belt" in text:
-        return "Belt"
-    if "backpack" in text or "rucksack" in text:
-        return "Backpack"
     if "shirt" in text or "tee" in text or "t-shirt" in text or "top" in text:
         return "Top"
 
@@ -442,13 +425,13 @@ def size_ok(item):
     text = full_text(item)
     cat = category(item)
 
+    if cat in ["Belt", "Backpack", "Eyewear"]:
+        return True
+
     if not size:
         return False
 
-    if cat in ["Belt", "Backpack"]:
-        return True
-
-    if ALLOW_ONE_SIZE and ("one size" in size or size == "one size" or size == "one"):
+    if ALLOW_ONE_SIZE and ("one size" in size or size == "one"):
         return True
 
     if cat in ["Top", "Hoodie/Sweatshirt", "Outerwear", "Clothing"]:
@@ -584,7 +567,6 @@ def format_msg(item):
     condition = item.get("status") or item.get("status_title") or "?"
     pos = item.get("pos", "?")
     link = item.get("url") or f"{item.get('source_base', 'https://www.vinted.co.uk')}/items/{item.get('id')}"
-    item_risk = risk(item)
 
     msg = f"{prefix}{color(score)} {score}/100\n\n"
     msg += f"Brand: {brand}\n"
@@ -595,7 +577,7 @@ def format_msg(item):
     msg += f"Condition: {condition}\n"
     msg += f"Category: {category(item)}\n"
     msg += f"Freshness: {freshness_text(item)}\n"
-    msg += f"Risk: {item_risk}\n\n"
+    msg += f"Risk: {risk(item)}\n\n"
     msg += f"Position: Top {pos}\n\n"
     msg += f"Link: {link}"
 
@@ -603,11 +585,10 @@ def format_msg(item):
 
 # ================= FETCH =================
 
-def fetch_brand(base, search):
+def fetch_latest(base):
     url = f"{base}/api/v2/catalog/items"
 
     params = {
-        "search_text": search,
         "price_to": MAX_PRICE,
         "per_page": PER_PAGE,
         "page": 1,
@@ -616,7 +597,7 @@ def fetch_brand(base, search):
 
     try:
         r = session.get(url, params=params, headers=headers(base), timeout=25)
-        print(base, search, r.status_code)
+        print(base, "LATEST", r.status_code)
 
         if r.status_code in [401, 403, 429]:
             sleep_time = random.randint(*BLOCK_SLEEP)
@@ -646,8 +627,8 @@ def fetch_brand(base, search):
 # ================= MAIN =================
 
 def run():
-    print("SNIPER BALANCED BOT STARTED")
-    send("SNIPER BALANCED BOT STARTED")
+    print("FAST BALANCED SNIPER BOT STARTED")
+    send("FAST BALANCED SNIPER BOT STARTED")
 
     for base in VINTED_BASES:
         refresh_cookies(base)
@@ -662,18 +643,9 @@ def run():
             bases = VINTED_BASES[:]
             random.shuffle(bases)
 
-            searches = SEARCHES[:]
-            random.shuffle(searches)
-
             for base in bases:
-                for search in searches:
-                    items = fetch_brand(base, search)
-
-                    for item in items:
-                        collected.append(item)
-
-                    time.sleep(random.uniform(*BRAND_DELAY))
-
+                items = fetch_latest(base)
+                collected.extend(items)
                 time.sleep(random.uniform(*DOMAIN_DELAY))
 
             processed = []
@@ -723,7 +695,6 @@ def run():
                 key=lambda x: (
                     x.get("pos", 999),
                     -x["score"],
-                    BASE_REGION.get(x.get("source_base"), "ZZ"),
                     random.random()
                 )
             )
