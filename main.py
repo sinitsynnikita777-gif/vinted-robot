@@ -21,19 +21,36 @@ MAX_PER_CYCLE = 25
 
 REQUEST_DELAY = (4, 9)
 BRAND_DELAY = (7, 15)
-CYCLE_DELAY = (90, 180)
+DOMAIN_DELAY = (20, 40)
+CYCLE_DELAY = (120, 240)
 BLOCK_SLEEP = (900, 1800)
 
 DB_PATH = "seen.db"
 
-# UK/Ireland usable
 VINTED_BASES = [
-    "https://www.vinted.co.uk",
+    "https://www.vinted.co.uk",  # UK
+    "https://www.vinted.ie",     # Ireland
+    "https://www.vinted.fr",     # France
+    "https://www.vinted.es",     # Spain
+    "https://www.vinted.be",     # Belgium
+    "https://www.vinted.nl",     # Netherlands
 ]
+
+ALLOWED_COUNTRIES = ["gb", "uk", "ie", "fr", "es", "be", "nl"]
+
+BASE_REGION = {
+    "https://www.vinted.co.uk": "UK",
+    "https://www.vinted.ie": "IE",
+    "https://www.vinted.fr": "FR",
+    "https://www.vinted.es": "ES",
+    "https://www.vinted.be": "BE",
+    "https://www.vinted.nl": "NL",
+}
 
 # ================= SIZES =================
 
 TOP_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
+
 PANTS_W = list(range(30, 35))
 PANTS_LETTER = ["m", "l"]
 PANTS_EU = ["46", "48", "50", "52"]
@@ -154,6 +171,7 @@ CLOTHING_WORDS = [
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
+
 cur.execute("""
 CREATE TABLE IF NOT EXISTS seen_items (
     id TEXT PRIMARY KEY,
@@ -189,6 +207,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
 ]
 
 def headers(base):
@@ -199,6 +218,7 @@ def headers(base):
         "Referer": base + "/",
         "Origin": base,
         "Connection": "keep-alive",
+        "DNT": "1",
     }
 
 def refresh_cookies(base):
@@ -209,10 +229,11 @@ def refresh_cookies(base):
     except Exception as e:
         print("REFRESH ERROR:", e)
 
-# ================= HELPERS =================
+# ================= TELEGRAM =================
 
 def send(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
     for chat in CHAT_IDS:
         try:
             requests.post(url, json={
@@ -222,6 +243,8 @@ def send(msg):
             }, timeout=15)
         except Exception as e:
             print("TG ERROR:", e)
+
+# ================= HELPERS =================
 
 def norm(x):
     return (x or "").lower()
@@ -256,22 +279,56 @@ def has_any(text, words):
 
 def detect_brand(text):
     t = norm(text)
+
     best_brand = None
     best_score = 0
 
     for brand, variants in BRANDS_MAP.items():
-        for v in variants:
-            if v in t:
+        for variant in variants:
+            if variant in t:
                 return brand
-            sim = SequenceMatcher(None, v, t).ratio()
-            if sim > best_score:
-                best_score = sim
+
+            score = SequenceMatcher(None, variant, t).ratio()
+            if score > best_score:
+                best_score = score
                 best_brand = brand
 
     if best_score >= 0.72:
         return best_brand
 
     return None
+
+def seller_country_code(item):
+    user = item.get("user") or {}
+    country = user.get("country_code") or user.get("country") or ""
+    return str(country).lower()
+
+def item_region(item):
+    country = seller_country_code(item)
+
+    if country in ["gb", "uk"]:
+        return "UK"
+    if country == "ie":
+        return "IE"
+    if country == "fr":
+        return "FR"
+    if country == "es":
+        return "ES"
+    if country == "be":
+        return "BE"
+    if country == "nl":
+        return "NL"
+
+    return BASE_REGION.get(item.get("source_base"), "?")
+
+def is_shipping_ok(item):
+    country = seller_country_code(item)
+
+    if country:
+        return country in ALLOWED_COUNTRIES
+
+    base = item.get("source_base")
+    return base in VINTED_BASES
 
 def parse_created_at(item):
     for key in [
@@ -281,16 +338,17 @@ def parse_created_at(item):
         "photo_high_resolution_created_at",
         "created_at_timestamp",
     ]:
-        val = item.get(key)
-        if not val:
+        value = item.get(key)
+
+        if not value:
             continue
 
-        if isinstance(val, int):
-            return datetime.fromtimestamp(val, tz=timezone.utc)
+        if isinstance(value, int):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
 
-        if isinstance(val, str):
+        if isinstance(value, str):
             try:
-                return datetime.fromisoformat(val.replace("Z", "+00:00"))
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
             except:
                 pass
 
@@ -298,8 +356,10 @@ def parse_created_at(item):
 
 def age_minutes(item):
     dt = parse_created_at(item)
+
     if not dt:
         return None
+
     return (datetime.now(timezone.utc) - dt).total_seconds() / 60
 
 def freshness_ok(item):
@@ -329,6 +389,7 @@ def is_fake_or_bad(item):
 
 def is_women(item):
     text = full_text(item)
+
     if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
         return True
 
@@ -344,7 +405,10 @@ def is_junk(item):
 def is_mens_clothing_or_shoes(item):
     text = full_text(item)
 
-    if "backpack" in text or "rucksack" in text or "belt" in text:
+    if "backpack" in text or "rucksack" in text:
+        return True
+
+    if "belt" in text:
         return True
 
     return has_any(text, CLOTHING_WORDS)
@@ -384,7 +448,7 @@ def size_ok(item):
     if cat in ["Belt", "Backpack"]:
         return True
 
-    if ALLOW_ONE_SIZE and ("one size" in size or "one" == size):
+    if ALLOW_ONE_SIZE and ("one size" in size or size == "one size" or size == "one"):
         return True
 
     if cat in ["Top", "Hoodie/Sweatshirt", "Outerwear", "Clothing"]:
@@ -398,26 +462,33 @@ def size_ok(item):
     if cat in ["Pants", "Jeans"]:
         if size in PANTS_LETTER or size in PANTS_EU or size in PANTS_JP:
             return True
+
         for w in PANTS_W:
             if size == str(w) or f"w{w}" in text or f" {w} " in f" {size} ":
                 return True
+
         return False
 
     if cat in ["Shoes", "Boots"]:
         if size in SHOES_EU:
             return True
+
         for eu in SHOES_EU:
             if f"eu {eu}" in text or f"eu{eu}" in text:
                 return True
+
         for uk in SHOES_UK:
             if f"uk {uk}" in text or f"uk{uk}" in text:
                 return True
+
         for us in SHOES_US:
             if f"us {us}" in text or f"us{us}" in text:
                 return True
+
         for jp in SHOES_JP_CM:
             if f"{jp}cm" in text or f"jp {jp}" in text:
                 return True
+
         return False
 
     return False
@@ -425,66 +496,70 @@ def size_ok(item):
 def risk(item):
     text = full_text(item)
     price = price_float(item.get("price"))
+    condition = norm(item.get("status") or item.get("status_title"))
 
-    if has_any(text, ["fake", "replica", "not authentic", "no tag", "missing tag", "cut tag"]):
+    if has_any(text, [
+        "fake", "replica", "not authentic", "not real",
+        "no tag", "missing tag", "cut tag", "without tag"
+    ]):
         return "high"
 
     if price > 120:
         return "medium"
 
-    cond = norm(item.get("status") or item.get("status_title"))
-    if "good" in cond and "very" not in cond and "new" not in cond:
+    if "good" in condition and "very" not in condition and "new" not in condition:
         return "medium"
 
     return "low"
 
 def score_item(item):
-    s = 0
+    score = 0
+
     price = price_float(item.get("price"))
     brand = item.get("brand")
-    cond = norm(item.get("status") or item.get("status_title"))
+    condition = norm(item.get("status") or item.get("status_title"))
     pos = item.get("pos", 999)
     title = norm(item.get("title"))
 
     if price < 50:
-        s += 35
+        score += 35
     elif price < 100:
-        s += 25
+        score += 25
     elif price <= 150:
-        s += 15
+        score += 15
 
     if brand in TOP_BRANDS:
-        s += 20
+        score += 20
     elif brand:
-        s += 10
+        score += 10
 
-    if "new" in cond:
-        s += 10
-    elif "very" in cond:
-        s += 7
-    elif "good" in cond:
-        s += 4
+    if "new" in condition:
+        score += 10
+    elif "very" in condition:
+        score += 7
+    elif "good" in condition:
+        score += 4
 
     if size_ok(item):
-        s += 10
+        score += 10
 
     if pos <= 5:
-        s += 12
+        score += 12
     elif pos <= 10:
-        s += 8
+        score += 8
     elif pos <= 20:
-        s += 4
+        score += 4
 
     if any(x in title for x in ["archive", "rare", "runway", "sample"]):
-        s += 5
+        score += 5
 
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     if likes == 0:
-        s += 3
+        score += 3
     elif likes <= 2:
-        s += 1
+        score += 1
 
-    return min(s, 100)
+    return min(score, 100)
 
 def color(score):
     if score >= 80:
@@ -500,25 +575,27 @@ def is_meat(item):
 
 def format_msg(item):
     prefix = "!!! MEAT | " if is_meat(item) else ""
+
     price = price_float(item.get("price"))
     score = item["score"]
     brand = item.get("brand") or "Unknown"
     title = item.get("title", "No title")
     size = item.get("size_title") or "?"
-    cond = item.get("status") or item.get("status_title") or "?"
+    condition = item.get("status") or item.get("status_title") or "?"
     pos = item.get("pos", "?")
-    link = item.get("url") or f"https://www.vinted.co.uk/items/{item.get('id')}"
-    r = risk(item)
+    link = item.get("url") or f"{item.get('source_base', 'https://www.vinted.co.uk')}/items/{item.get('id')}"
+    item_risk = risk(item)
 
     msg = f"{prefix}{color(score)} {score}/100\n\n"
     msg += f"Brand: {brand}\n"
     msg += f"Name: {title}\n\n"
     msg += f"Price: £{int(price)}\n"
+    msg += f"Region: {item_region(item)}\n"
     msg += f"Size: {size}\n"
-    msg += f"Condition: {cond}\n"
+    msg += f"Condition: {condition}\n"
     msg += f"Category: {category(item)}\n"
     msg += f"Freshness: {freshness_text(item)}\n"
-    msg += f"Risk: {r}\n\n"
+    msg += f"Risk: {item_risk}\n\n"
     msg += f"Position: Top {pos}\n\n"
     msg += f"Link: {link}"
 
@@ -528,6 +605,7 @@ def format_msg(item):
 
 def fetch_brand(base, search):
     url = f"{base}/api/v2/catalog/items"
+
     params = {
         "search_text": search,
         "price_to": MAX_PRICE,
@@ -553,10 +631,11 @@ def fetch_brand(base, search):
         raw_items = r.json().get("items", [])
         items = []
 
-        for i, it in enumerate(raw_items):
-            it["pos"] = i + 1
-            it["source_base"] = base
-            items.append(it)
+        for i, item in enumerate(raw_items):
+            item["pos"] = i + 1
+            item["source_base"] = base
+            item["source_region"] = BASE_REGION.get(base, "?")
+            items.append(item)
 
         return items
 
@@ -580,17 +659,22 @@ def run():
             cycle += 1
             collected = []
 
+            bases = VINTED_BASES[:]
+            random.shuffle(bases)
+
             searches = SEARCHES[:]
             random.shuffle(searches)
 
-            for base in VINTED_BASES:
+            for base in bases:
                 for search in searches:
                     items = fetch_brand(base, search)
 
-                    for it in items:
-                        collected.append(it)
+                    for item in items:
+                        collected.append(item)
 
                     time.sleep(random.uniform(*BRAND_DELAY))
+
+                time.sleep(random.uniform(*DOMAIN_DELAY))
 
             processed = []
 
@@ -610,6 +694,9 @@ def run():
                     continue
 
                 item["brand"] = brand
+
+                if not is_shipping_ok(item):
+                    continue
 
                 if is_fake_or_bad(item):
                     continue
@@ -632,8 +719,14 @@ def run():
                 item["score"] = score_item(item)
                 processed.append(item)
 
-            # Главное изменение: микс всех брендов, сначала самые новые/верхние позиции, потом score
-            processed.sort(key=lambda x: (x.get("pos", 999), -x["score"], random.random()))
+            processed.sort(
+                key=lambda x: (
+                    x.get("pos", 999),
+                    -x["score"],
+                    BASE_REGION.get(x.get("source_base"), "ZZ"),
+                    random.random()
+                )
+            )
 
             sent = 0
 
@@ -642,6 +735,7 @@ def run():
                     break
 
                 item_id = str(item.get("id"))
+
                 if is_seen(item_id):
                     continue
 
