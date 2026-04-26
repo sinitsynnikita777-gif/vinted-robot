@@ -11,25 +11,40 @@ from difflib import SequenceMatcher
 
 BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 
-CHAT_IDS = [
+# Все / All
+CHAT_ALL = "-1003867748419"
+
+# Для себя / Personal
+CHAT_PERSONAL = "-1003821333605"
+
+# Ресейл / Resell
+CHAT_RESELL = "-1003958308581"
+
+# Личные дубли
+USER_IDS = [
     "8104561365",
     "1508784719"
 ]
 
-def send(msg):
-    for chat_id in CHAT_IDS:
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                data={
-                    "chat_id": chat_id,
-                    "text": msg,
-                    "disable_web_page_preview": False,
-                },
-                timeout=15
-            )
-        except Exception as e:
-            print("TG ERROR:", e)
+
+def send_to(chat_id, msg):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": msg,
+                "disable_web_page_preview": False,
+            },
+            timeout=15
+        )
+    except Exception as e:
+        print("TG ERROR:", e)
+
+
+def send_private_copies(msg):
+    for user_id in USER_IDS:
+        send_to(user_id, msg)
 
 
 # =====================
@@ -39,12 +54,10 @@ def send(msg):
 BASE = "https://www.vinted.co.uk"
 API = "https://www.vinted.co.uk/api/v2/catalog/items"
 
-MAX_PRICE = 150
+MAX_PRICE = 250
 MAX_ITEM_AGE_HOURS = 24
 PER_PAGE = 20
 
-MIN_DELAY = 45
-MAX_DELAY = 115
 CYCLE_DELAY_MIN = 180
 CYCLE_DELAY_MAX = 420
 
@@ -58,17 +71,19 @@ DB_PATH = "seen.db"
 # YOUR SIZES
 # =====================
 
-TOP_SIZES = ["m", "l", "xl"]
-OUTERWEAR_SIZES = ["m", "l", "xl"]
-HOODIE_SIZES = ["m", "l", "xl"]
+TOP_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
+OUTERWEAR_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
+HOODIE_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
 
 PANTS_W = list(range(30, 35))
 PANTS_LETTER = ["m", "l"]
-PANTS_EU = ["48", "50", "52"]
+PANTS_EU = ["46", "48", "50", "52"]
+PANTS_JP = ["3", "4", "5"]
 
-SHOES_EU = list(range(42, 45))
+SHOES_EU = ["42", "42.5", "43", "43.5", "44"]
 SHOES_UK = ["8", "8.5", "9", "9.5", "10"]
 SHOES_US = ["9", "9.5", "10", "10.5", "11"]
+SHOES_JP_CM = ["27", "27.5", "28", "28.5"]
 
 ACCESSORIES_CATEGORIES = ["Belts"]
 
@@ -148,6 +163,8 @@ BAD_WORDS = [
     "hole", "holes", "destroyed", "needs repair", "flawed",
     "no tag", "no tags", "cut tag", "missing tag", "tag cut",
     "kids", "child", "junior", "youth", "boys", "girls",
+    "women's fit", "female fit", "slim fit women",
+    "petite", "uk 6", "uk 8", "uk 10",
 ]
 
 JUNK_WORDS = [
@@ -274,6 +291,7 @@ def full_text(item):
         item.get("brand_title") or "",
         item.get("size_title") or "",
         item.get("status") or "",
+        item.get("status_title") or "",
         item.get("catalog_title") or "",
         item.get("category_title") or "",
         item.get("catalog_path") or "",
@@ -372,6 +390,10 @@ def is_bad_item(item):
     if not is_allowed_fashion_item(item):
         return True
 
+    title = item.get("title") or ""
+    if len(title.strip()) < 5:
+        return True
+
     return False
 
 def detect_category(item):
@@ -388,7 +410,13 @@ def detect_category(item):
     return "Other"
 
 def parse_created_at(item):
-    for key in ["created_at_ts", "created_at", "created_at_datetime", "photo_high_resolution_created_at"]:
+    for key in [
+        "created_at_ts",
+        "created_at",
+        "created_at_datetime",
+        "photo_high_resolution_created_at",
+        "created_at_timestamp"
+    ]:
         val = item.get(key)
 
         if not val:
@@ -417,38 +445,30 @@ def fresh_enough(item):
         return True
     return age <= MAX_ITEM_AGE_HOURS
 
+def freshness_text(item):
+    age = age_hours(item)
+
+    if age is None:
+        return "newest search / новый поиск"
+
+    if age < 1:
+        minutes = int(age * 60)
+        return f"{minutes} min ago / {minutes} мин назад"
+
+    hours = round(age, 1)
+    return f"{hours}h ago / {hours} ч назад"
+
 
 # =====================
 # LABELS
 # =====================
 
-def price_badge(price):
-    p = price_float(price)
-    if p <= 50:
-        return "🟢 under £50"
-    if p <= 100:
-        return "🟡🟡 under £100"
-    return "🔴🔴🔴 under £150"
-
 def market_confidence_label(comp_count):
     if comp_count >= 7:
-        return "🟢🟢🟢 strong"
+        return "🟢🟢🟢 strong / сильный"
     if comp_count >= 3:
-        return "🟡🟡 average"
-    return "🔴 low data"
-
-def profit_badge_label(price, market_low):
-    if not market_low:
-        return "🔴 unknown"
-
-    p = price_float(price)
-    profit = market_low - p
-
-    if profit >= 60:
-        return "🟢🟢🟢 high"
-    if profit >= 20:
-        return "🟡🟡 decent"
-    return "🔴 low"
+        return "🟡🟡 average / средний"
+    return "🔴 low data / мало данных"
 
 def demand_badge_label(item, category):
     favs = item.get("favourite_count") or item.get("favorites_count") or 0
@@ -464,22 +484,19 @@ def demand_badge_label(item, category):
         score += 1
 
     if score >= 3:
-        return "🟢🟢🟢 high"
+        return "🟢🟢🟢 high / высокий"
     if score >= 1:
-        return "🟡🟡 decent"
-    return "🔴 low"
-
-def freshness_badge_label(item):
-    return "🟢 newest"
+        return "🟡🟡 decent / норм"
+    return "🔴 low / слабый"
 
 def condition_badge_label(item):
     condition = (item.get("status") or item.get("status_title") or "").lower()
 
     if "new" in condition or "very good" in condition:
-        return "🟢🟢🟢 good"
+        return "🟢🟢🟢 good / хорошее"
     if "good" in condition:
-        return "🟡🟡 ok"
-    return "🔴 weak"
+        return "🟡🟡 ok / норм"
+    return "🔴 weak / слабое"
 
 def risk_badge_and_text(item, brand, market_low):
     price = price_float(item.get("price"))
@@ -490,25 +507,25 @@ def risk_badge_and_text(item, brand, market_low):
 
     if brand in POPULAR_BRANDS and price <= 30:
         points += 2
-        reasons.append("too cheap")
+        reasons.append("too cheap / очень дешево")
 
     if market_low and price < market_low * 0.35:
         points += 2
-        reasons.append("below market")
+        reasons.append("far below market / сильно ниже рынка")
 
     if "no tag" in text or "missing tag" in text or "cut tag" in text:
         points += 2
-        reasons.append("no tags")
+        reasons.append("no tags / нет бирок")
 
     if is_collab(item):
         points += 1
-        reasons.append("collab")
+        reasons.append("collab / коллаборация")
 
     if points >= 4:
-        return "🔴🔴🔴 high", ", ".join(reasons) or "high"
+        return "🔴🔴🔴 high / высокий", ", ".join(reasons) or "high / высокий"
     if points >= 2:
-        return "🟡🟡 medium", ", ".join(reasons) or "medium"
-    return "🟢 low", "ok"
+        return "🟡🟡 medium / средний", ", ".join(reasons) or "medium / средний"
+    return "🟢 low / низкий", "ok / ок"
 
 
 # =====================
@@ -520,22 +537,31 @@ def size_match(item, category):
     text = full_text(item)
 
     if not size:
-        return "🟡🟡 unknown", "unknown"
+        return "🟡 possible / возможно", "unknown"
 
     if category in ACCESSORIES_CATEGORIES:
-        return "🟢 any", size
+        return "🟢 ideal / подходит", size
 
     if category in ["T-shirts", "Shirts", "Long sleeve tops", "Knitwear & Jumpers"]:
-        ok = any(s == size or f" {s} " in f" {size} " for s in TOP_SIZES)
-        return ("🟢 fits" if ok else "🔴 not your size"), size
+        if any(s == size or f" {s} " in f" {size} " for s in TOP_SIZES):
+            return "🟢 ideal / подходит", size
+        if "oversized" in text or "boxy" in text:
+            return "🟡 possible / возможно", size
+        return "🔴 bad / не твой", size
 
     if category in ["Hoodies & Sweatshirts"]:
-        ok = any(s == size or f" {s} " in f" {size} " for s in HOODIE_SIZES)
-        return ("🟢 fits" if ok else "🔴 not your size"), size
+        if any(s == size or f" {s} " in f" {size} " for s in HOODIE_SIZES):
+            return "🟢 ideal / подходит", size
+        if "oversized" in text or "boxy" in text:
+            return "🟡 possible / возможно", size
+        return "🔴 bad / не твой", size
 
     if category in ["Jackets & Coats"]:
-        ok = any(s == size or f" {s} " in f" {size} " for s in OUTERWEAR_SIZES)
-        return ("🟢 fits" if ok else "🔴 not your size"), size
+        if any(s == size or f" {s} " in f" {size} " for s in OUTERWEAR_SIZES):
+            return "🟢 ideal / подходит", size
+        if "oversized" in text or "boxy" in text:
+            return "🟡 possible / возможно", size
+        return "🔴 bad / не твой", size
 
     if category in ["Trousers", "Jeans", "Shorts"]:
         ok = False
@@ -550,7 +576,10 @@ def size_match(item, category):
         if any(eu in size for eu in PANTS_EU):
             ok = True
 
-        return ("🟢 fits" if ok else "🔴 not your size"), size
+        if any(jp == size for jp in PANTS_JP):
+            ok = True
+
+        return ("🟢 ideal / подходит" if ok else "🔴 bad / не твой"), size
 
     if category in ["Trainers", "Boots"]:
         ok = False
@@ -567,14 +596,36 @@ def size_match(item, category):
             if f"us {us}" in text or f"us{us}" in text:
                 ok = True
 
-        return ("🟢 fits" if ok else "🔴 not your size"), size
+        for jp in SHOES_JP_CM:
+            if f"{jp}cm" in text or f"jp {jp}" in text:
+                ok = True
 
-    return "🟡🟡 unknown", size
+        return ("🟢 ideal / подходит" if ok else "🔴 bad / не твой"), size
+
+    return "🟡 possible / возможно", size
 
 
 # =====================
 # MARKET / SCORE
 # =====================
+
+def fetch_item_details(item_id):
+    try:
+        r = session.get(
+            f"https://www.vinted.co.uk/api/v2/items/{item_id}",
+            headers=headers(),
+            timeout=20
+        )
+
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        return data.get("item") or data
+
+    except Exception as e:
+        print("DETAIL ERROR:", e)
+        return None
 
 def vinted_market_estimate(brand, title, current_id):
     query = f"{brand} {title}".strip()[:80]
@@ -585,8 +636,8 @@ def vinted_market_estimate(brand, title, current_id):
             headers=headers(),
             params={
                 "search_text": query,
-                "price_to": 300,
-                "per_page": 12,
+                "price_to": 350,
+                "per_page": 16,
                 "order": "newest_first",
             },
             timeout=20,
@@ -605,7 +656,7 @@ def vinted_market_estimate(brand, title, current_id):
                 continue
 
             p = price_float(item.get("price"))
-            if 5 <= p <= 300:
+            if 5 <= p <= 350:
                 prices.append(p)
 
         if len(prices) < 3:
@@ -633,9 +684,11 @@ def score_item(item, brand, market_low, comp_count):
     if price <= 50:
         score += 30
     elif price <= 100:
-        score += 18
+        score += 22
+    elif price <= 150:
+        score += 14
     else:
-        score += 8
+        score += 6
 
     score += 15
 
@@ -654,8 +707,10 @@ def score_item(item, brand, market_low, comp_count):
     elif comp_count >= 3:
         score += 4
 
-    if favs >= 10:
-        score += 8
+    if favs == 0:
+        score -= 5
+    elif favs >= 5:
+        score += 6
     elif favs >= 3:
         score += 4
 
@@ -668,8 +723,10 @@ def score_item(item, brand, market_low, comp_count):
     size_badge, _ = size_match(item, category)
     if size_badge.startswith("🟢"):
         score += 5
+    elif size_badge.startswith("🟡"):
+        score += 1
     elif size_badge.startswith("🔴"):
-        score -= 5
+        score -= 8
 
     return max(1, min(100, score))
 
@@ -679,17 +736,33 @@ def super_signal(score, item, market_low):
     if score >= 88:
         return True
 
-    if market_low and price < market_low * 0.55:
+    if market_low and price < market_low * 0.50:
         return True
 
     return False
+
+def is_personal_item(score, item):
+    category = detect_category(item)
+    size_badge, _ = size_match(item, category)
+    return size_badge.startswith("🟢") and score >= 55
+
+def is_resell_item(score, item, market_low):
+    price = price_float(item.get("price"))
+
+    if super_signal(score, item, market_low):
+        return True
+
+    if not market_low:
+        return False
+
+    return (market_low - price >= 30) and score >= 60
 
 
 # =====================
 # FORMAT
 # =====================
 
-def format_item(item, search, brand, score, market_low, market_high, comp_count):
+def format_item(item, search, brand, score, market_low, market_high, comp_count, vip=False):
     title = item.get("title", "No title")
     price = price_float(item.get("price"))
     condition = item.get("status") or item.get("status_title") or "?"
@@ -701,31 +774,25 @@ def format_item(item, search, brand, score, market_low, market_high, comp_count)
 
     if market_low and market_high:
         market = f"£{market_low}–£{market_high}"
-        profit_low = int(market_low - price)
-        profit_high = int(market_high - price)
-        profit = f"+£{profit_low}–£{profit_high}"
     else:
-        market = "unknown"
-        profit = "unknown"
+        market = "unknown / неизвестно"
 
-    prefix = "!!! " if super_signal(score, item, market_low) else ""
+    prefix = "!!! " if vip else ""
 
-    return f"""{prefix}Price: {price_badge(price)} | Score: {score}/100 | Risk: {risk_badge}
+    return f"""{prefix}£{int(price)} | {score}/100 pts | Risk / Риск: {risk_badge}
 
 {brand}
 {title}
-£{price}
 
-Market: {market_confidence_label(comp_count)} ({market})
-Profit: {profit_badge_label(price, market_low)} ({profit})
-Demand: {demand_badge_label(item, category)}
+Market / Рынок: {market} | {market_confidence_label(comp_count)} | {comp_count} comps
+Demand / Спрос: {demand_badge_label(item, category)}
 
-Freshness: {freshness_badge_label(item)}
-Condition: {condition_badge_label(item)} ({condition})
-Size: {size_badge} ({size_value})
-Category: {category}
+Freshness / Свежесть: {freshness_text(item)}
+Condition / Состояние: {condition_badge_label(item)} ({condition})
+Size / Размер: {size_badge} ({size_value})
+Category / Категория: {category}
 
-Risk notes: {risk_text}
+Risk notes / Риск-факторы: {risk_text}
 
 {url}
 """
@@ -769,9 +836,29 @@ def fetch(search):
         print("FETCH ERROR:", e)
         return []
 
+def route_message(item, score, market_low, msg):
+    sent = False
+
+    if is_resell_item(score, item, market_low):
+        send_to(CHAT_RESELL, msg)
+        sent = True
+
+    if is_personal_item(score, item):
+        send_to(CHAT_PERSONAL, msg)
+        sent = True
+
+    # Все / All — всё, что прошло фильтры
+    send_to(CHAT_ALL, msg)
+
+    # Личные дубли тебе и другу
+    send_private_copies(msg)
+
+    return sent
+
 def main():
-    print("FULL FINAL RANDOM BOT STARTED")
-    send("FULL FINAL RANDOM BOT STARTED")
+    print("FINAL FULL BOT STARTED")
+    send_to(CHAT_ALL, "FINAL FULL BOT STARTED")
+    send_private_copies("FINAL FULL BOT STARTED")
 
     refresh_cookies()
 
@@ -798,6 +885,10 @@ def main():
 
             save_seen(item_id)
 
+            details = fetch_item_details(item_id)
+            if details:
+                item.update(details)
+
             if not fresh_enough(item):
                 continue
 
@@ -816,6 +907,7 @@ def main():
             )
 
             score = score_item(item, brand, market_low, comp_count)
+            is_vip = super_signal(score, item, market_low)
 
             msg = format_item(
                 item,
@@ -824,17 +916,19 @@ def main():
                 score,
                 market_low,
                 market_high,
-                comp_count
+                comp_count,
+                vip=is_vip
             )
 
             print(msg)
-            send(msg)
+            route_message(item, score, market_low, msg)
 
             time.sleep(random.randint(8, 20))
 
         long_delay = random.randint(CYCLE_DELAY_MIN, CYCLE_DELAY_MAX)
         print("CYCLE DONE. SLEEP:", long_delay)
         time.sleep(long_delay)
+
 
 if __name__ == "__main__":
     main()
