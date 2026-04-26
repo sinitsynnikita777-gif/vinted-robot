@@ -1,3 +1,4 @@
+
 import time
 import random
 import sqlite3
@@ -11,21 +12,14 @@ from difflib import SequenceMatcher
 
 BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 
-# Все / All
-CHAT_ALL = "-1003867748419"
-
-# Для себя / Personal
+CHAT_BEST = "-1003867748419"
 CHAT_PERSONAL = "-1003821333605"
-
-# Ресейл / Resell
 CHAT_RESELL = "-1003958308581"
 
-# Личные дубли
 USER_IDS = [
     "8104561365",
     "1508784719"
 ]
-
 
 def send_to(chat_id, msg):
     try:
@@ -41,7 +35,6 @@ def send_to(chat_id, msg):
     except Exception as e:
         print("TG ERROR:", e)
 
-
 def send_private_copies(msg):
     for user_id in USER_IDS:
         send_to(user_id, msg)
@@ -54,8 +47,11 @@ def send_private_copies(msg):
 BASE = "https://www.vinted.co.uk"
 API = "https://www.vinted.co.uk/api/v2/catalog/items"
 
-MAX_PRICE = 250
-MAX_ITEM_AGE_HOURS = 24
+MAX_PRICE = 150
+MAX_ITEM_AGE_HOURS = 2
+FRESHNESS_FALLBACK_MAX_LIKES = 5
+MIN_RESELL_PROFIT_PERCENT = 0.25
+
 PER_PAGE = 20
 
 CYCLE_DELAY_MIN = 180
@@ -85,7 +81,7 @@ SHOES_UK = ["8", "8.5", "9", "9.5", "10"]
 SHOES_US = ["9", "9.5", "10", "10.5", "11"]
 SHOES_JP_CM = ["27", "27.5", "28", "28.5"]
 
-ACCESSORIES_CATEGORIES = ["Belts"]
+ACCESSORIES_CATEGORIES = ["Belts", "Backpacks"]
 
 
 # =====================
@@ -202,12 +198,14 @@ CATEGORY_KEYWORDS = {
     "Shorts": ["shorts"],
     "Trainers": ["sneakers", "trainers"],
     "Boots": ["boots", "boot"],
+    "Backpacks": ["backpack", "rucksack"],
     "Belts": ["belt"],
 }
 
-GOOD_CATEGORIES = {
-    "Jackets & Coats", "Trousers", "Jeans", "Boots",
-    "Trainers", "Hoodies & Sweatshirts", "Knitwear & Jumpers"
+LIQUID_CATEGORIES = {
+    "T-shirts", "Shirts", "Long sleeve tops", "Hoodies & Sweatshirts",
+    "Knitwear & Jumpers", "Jackets & Coats", "Trousers", "Jeans",
+    "Shorts", "Trainers", "Boots", "Backpacks", "Belts"
 }
 
 ALLOWED_CLOTHING_WORDS = [
@@ -215,14 +213,14 @@ ALLOWED_CLOTHING_WORDS = [
     "crewneck", "knit", "jumper", "cardigan", "sweater", "jacket", "coat",
     "bomber", "puffer", "parka", "vest", "trousers", "pants", "cargo",
     "jeans", "denim", "shorts", "trainers", "sneakers", "boots", "shoes",
-    "belt",
+    "backpack", "rucksack", "belt",
 ]
 
 BLOCKED_CATEGORY_WORDS = [
     "books", "magazines", "entertainment", "home", "toys", "games",
     "beauty", "electronics", "stationery", "collectibles", "music",
     "films", "dvds", "cds", "art", "decor", "jewellery", "jewelry",
-    "bags", "wallets", "purses", "accessories",
+    "wallets", "purses",
 ]
 
 
@@ -353,6 +351,9 @@ def is_allowed_fashion_item(item):
     if "belt" in text or "belt" in cat:
         return True
 
+    if "backpack" in text or "rucksack" in text or "backpack" in cat:
+        return True
+
     if any(word in cat for word in BLOCKED_CATEGORY_WORDS):
         return False
 
@@ -441,22 +442,24 @@ def age_hours(item):
 
 def fresh_enough(item):
     age = age_hours(item)
-    if age is None:
-        return True
-    return age <= MAX_ITEM_AGE_HOURS
+    favs = item.get("favourite_count") or item.get("favorites_count") or 0
+
+    if age is not None:
+        return age <= MAX_ITEM_AGE_HOURS
+
+    return favs <= FRESHNESS_FALLBACK_MAX_LIKES
 
 def freshness_text(item):
     age = age_hours(item)
 
     if age is None:
-        return "newest search / новый поиск"
+        favs = item.get("favourite_count") or item.get("favorites_count") or 0
+        return f"unknown age, {favs} likes"
 
     if age < 1:
-        minutes = int(age * 60)
-        return f"{minutes} min ago / {minutes} мин назад"
+        return f"{int(age * 60)} min ago"
 
-    hours = round(age, 1)
-    return f"{hours}h ago / {hours} ч назад"
+    return f"{round(age, 1)}h ago"
 
 
 # =====================
@@ -465,10 +468,10 @@ def freshness_text(item):
 
 def market_confidence_label(comp_count):
     if comp_count >= 7:
-        return "🟢🟢🟢 strong / сильный"
+        return "🟢🟢🟢 strong"
     if comp_count >= 3:
-        return "🟡🟡 average / средний"
-    return "🔴 low data / мало данных"
+        return "🟡🟡 average"
+    return "🔴 low data"
 
 def demand_badge_label(item, category):
     favs = item.get("favourite_count") or item.get("favorites_count") or 0
@@ -480,23 +483,23 @@ def demand_badge_label(item, category):
     elif favs >= 3:
         score += 1
 
-    if category in GOOD_CATEGORIES:
+    if category in LIQUID_CATEGORIES:
         score += 1
 
     if score >= 3:
-        return "🟢🟢🟢 high / высокий"
+        return "🟢🟢🟢 high"
     if score >= 1:
-        return "🟡🟡 decent / норм"
-    return "🔴 low / слабый"
+        return "🟡🟡 decent"
+    return "🔴 low"
 
 def condition_badge_label(item):
     condition = (item.get("status") or item.get("status_title") or "").lower()
 
     if "new" in condition or "very good" in condition:
-        return "🟢🟢🟢 good / хорошее"
+        return "🟢🟢🟢 good"
     if "good" in condition:
-        return "🟡🟡 ok / норм"
-    return "🔴 weak / слабое"
+        return "🟡🟡 ok"
+    return "🔴 weak"
 
 def risk_badge_and_text(item, brand, market_low):
     price = price_float(item.get("price"))
@@ -507,25 +510,25 @@ def risk_badge_and_text(item, brand, market_low):
 
     if brand in POPULAR_BRANDS and price <= 30:
         points += 2
-        reasons.append("too cheap / очень дешево")
+        reasons.append("too cheap")
 
     if market_low and price < market_low * 0.35:
         points += 2
-        reasons.append("far below market / сильно ниже рынка")
+        reasons.append("far below market")
 
     if "no tag" in text or "missing tag" in text or "cut tag" in text:
         points += 2
-        reasons.append("no tags / нет бирок")
+        reasons.append("no tags")
 
     if is_collab(item):
         points += 1
-        reasons.append("collab / коллаборация")
+        reasons.append("collab")
 
     if points >= 4:
-        return "🔴🔴🔴 high / высокий", ", ".join(reasons) or "high / высокий"
+        return "🔴🔴🔴 high", ", ".join(reasons) or "high"
     if points >= 2:
-        return "🟡🟡 medium / средний", ", ".join(reasons) or "medium / средний"
-    return "🟢 low / низкий", "ok / ок"
+        return "🟡🟡 medium", ", ".join(reasons) or "medium"
+    return "🟢 low", "ok"
 
 
 # =====================
@@ -537,31 +540,34 @@ def size_match(item, category):
     text = full_text(item)
 
     if not size:
-        return "🟡 possible / возможно", "unknown"
+        return "🟡 possible", "unknown"
 
     if category in ACCESSORIES_CATEGORIES:
-        return "🟢 ideal / подходит", size
+        return "🟢 ideal", size
+
+    if category in ["Backpacks"]:
+        return "🟢 ideal", size
 
     if category in ["T-shirts", "Shirts", "Long sleeve tops", "Knitwear & Jumpers"]:
         if any(s == size or f" {s} " in f" {size} " for s in TOP_SIZES):
-            return "🟢 ideal / подходит", size
+            return "🟢 ideal", size
         if "oversized" in text or "boxy" in text:
-            return "🟡 possible / возможно", size
-        return "🔴 bad / не твой", size
+            return "🟡 possible", size
+        return "🔴 bad", size
 
     if category in ["Hoodies & Sweatshirts"]:
         if any(s == size or f" {s} " in f" {size} " for s in HOODIE_SIZES):
-            return "🟢 ideal / подходит", size
+            return "🟢 ideal", size
         if "oversized" in text or "boxy" in text:
-            return "🟡 possible / возможно", size
-        return "🔴 bad / не твой", size
+            return "🟡 possible", size
+        return "🔴 bad", size
 
     if category in ["Jackets & Coats"]:
         if any(s == size or f" {s} " in f" {size} " for s in OUTERWEAR_SIZES):
-            return "🟢 ideal / подходит", size
+            return "🟢 ideal", size
         if "oversized" in text or "boxy" in text:
-            return "🟡 possible / возможно", size
-        return "🔴 bad / не твой", size
+            return "🟡 possible", size
+        return "🔴 bad", size
 
     if category in ["Trousers", "Jeans", "Shorts"]:
         ok = False
@@ -579,7 +585,7 @@ def size_match(item, category):
         if any(jp == size for jp in PANTS_JP):
             ok = True
 
-        return ("🟢 ideal / подходит" if ok else "🔴 bad / не твой"), size
+        return ("🟢 ideal" if ok else "🔴 bad"), size
 
     if category in ["Trainers", "Boots"]:
         ok = False
@@ -600,9 +606,9 @@ def size_match(item, category):
             if f"{jp}cm" in text or f"jp {jp}" in text:
                 ok = True
 
-        return ("🟢 ideal / подходит" if ok else "🔴 bad / не твой"), size
+        return ("🟢 ideal" if ok else "🔴 bad"), size
 
-    return "🟡 possible / возможно", size
+    return "🟡 possible", size
 
 
 # =====================
@@ -674,6 +680,9 @@ def vinted_market_estimate(brand, title, current_id):
         print("MARKET ERROR:", e)
         return None, None, 0
 
+def estimated_profit_after_fees(price, sell_price):
+    return sell_price - price - (sell_price * 0.15)
+
 def score_item(item, brand, market_low, comp_count):
     price = price_float(item.get("price"))
     category = detect_category(item)
@@ -714,7 +723,7 @@ def score_item(item, brand, market_low, comp_count):
     elif favs >= 3:
         score += 4
 
-    if category in GOOD_CATEGORIES:
+    if category in LIQUID_CATEGORIES:
         score += 7
 
     if is_collab(item):
@@ -730,13 +739,20 @@ def score_item(item, brand, market_low, comp_count):
 
     return max(1, min(100, score))
 
-def super_signal(score, item, market_low):
+def is_best_item(score, item, market_low, comp_count):
     price = price_float(item.get("price"))
+    risk_badge, _ = risk_badge_and_text(item, "", market_low)
 
-    if score >= 88:
+    if risk_badge.startswith("🔴"):
+        return False
+
+    if comp_count < 3:
+        return False
+
+    if score >= 90:
         return True
 
-    if market_low and price < market_low * 0.50:
+    if market_low and price < market_low * 0.45:
         return True
 
     return False
@@ -744,62 +760,144 @@ def super_signal(score, item, market_low):
 def is_personal_item(score, item):
     category = detect_category(item)
     size_badge, _ = size_match(item, category)
-    return size_badge.startswith("🟢") and score >= 55
+    return size_badge.startswith("🟢")
 
 def is_resell_item(score, item, market_low):
-    price = price_float(item.get("price"))
-
-    if super_signal(score, item, market_low):
-        return True
-
     if not market_low:
         return False
 
-    return (market_low - price >= 30) and score >= 60
+    price = price_float(item.get("price"))
+    min_profit = price * MIN_RESELL_PROFIT_PERCENT
+    raw_profit = market_low - price
+
+    return raw_profit >= min_profit
 
 
 # =====================
-# FORMAT
+# FORMATS
 # =====================
 
-def format_item(item, search, brand, score, market_low, market_high, comp_count, vip=False):
+def base_url(item):
+    return item.get("url") or f"https://www.vinted.co.uk/items/{item.get('id')}"
+
+def format_best_item(item, brand, score, market_low, market_high, comp_count):
     title = item.get("title", "No title")
     price = price_float(item.get("price"))
-    condition = item.get("status") or item.get("status_title") or "?"
-    url = item.get("url") or f"https://www.vinted.co.uk/items/{item.get('id')}"
     category = detect_category(item)
-
-    risk_badge, risk_text = risk_badge_and_text(item, brand, market_low)
     size_badge, size_value = size_match(item, category)
+    risk_badge, risk_text = risk_badge_and_text(item, brand, market_low)
 
-    if market_low and market_high:
-        market = f"£{market_low}–£{market_high}"
-    else:
-        market = "unknown / неизвестно"
+    market = f"£{market_low}–£{market_high}" if market_low and market_high else "unknown"
 
-    prefix = "!!! " if vip else ""
-
-    return f"""{prefix}£{int(price)} | {score}/100 pts | Risk / Риск: {risk_badge}
+    return f"""!!! £{int(price)} | {score}/100 pts | Risk: {risk_badge}
 
 {brand}
 {title}
 
-Market / Рынок: {market} | {market_confidence_label(comp_count)} | {comp_count} comps
-Demand / Спрос: {demand_badge_label(item, category)}
+Market: {market} | {market_confidence_label(comp_count)} | {comp_count} comps
+Size: {size_badge} ({size_value})
+Freshness: {freshness_text(item)}
+Risk notes: {risk_text}
 
-Freshness / Свежесть: {freshness_text(item)}
-Condition / Состояние: {condition_badge_label(item)} ({condition})
-Size / Размер: {size_badge} ({size_value})
-Category / Категория: {category}
+{base_url(item)}
+"""
 
-Risk notes / Риск-факторы: {risk_text}
+def format_personal_item(item, brand, score, market_low, market_high, comp_count):
+    title = item.get("title", "No title")
+    price = price_float(item.get("price"))
+    category = detect_category(item)
+    condition = item.get("status") or item.get("status_title") or "?"
+    size_badge, size_value = size_match(item, category)
+    risk_badge, risk_text = risk_badge_and_text(item, brand, market_low)
 
-{url}
+    market = f"£{market_low}–£{market_high}" if market_low and market_high else "unknown"
+
+    return f"""£{int(price)} | {score}/100 pts | Risk: {risk_badge}
+
+{brand}
+{title}
+
+Fit: {size_badge}
+Size: {size_value}
+Condition: {condition_badge_label(item)} ({condition})
+Market: {market} | {market_confidence_label(comp_count)}
+Freshness: {freshness_text(item)}
+Category: {category}
+
+Risk notes: {risk_text}
+
+{base_url(item)}
+"""
+
+def format_resell_item(item, brand, score, market_low, market_high, comp_count):
+    title = item.get("title", "No title")
+    price = price_float(item.get("price"))
+    category = detect_category(item)
+    condition = item.get("status") or item.get("status_title") or "?"
+    size_badge, size_value = size_match(item, category)
+    risk_badge, risk_text = risk_badge_and_text(item, brand, market_low)
+
+    if market_low and market_high:
+        sell_low = market_low
+        sell_high = market_high
+        profit_low = int(estimated_profit_after_fees(price, sell_low))
+        profit_high = int(estimated_profit_after_fees(price, sell_high))
+        estimated_sell = f"£{sell_low}–£{sell_high}"
+        estimated_profit = f"£{profit_low}–£{profit_high} after fees"
+    else:
+        estimated_sell = "unknown"
+        estimated_profit = "unknown"
+
+    return f"""£{int(price)} | {score}/100 pts | Risk: {risk_badge}
+
+{brand}
+{title}
+
+Buy price: £{int(price)}
+Estimated sell: {estimated_sell}
+Estimated profit: {estimated_profit}
+
+Market confidence: {market_confidence_label(comp_count)} | {comp_count} comps
+Demand: {demand_badge_label(item, category)}
+Size: {size_badge} ({size_value})
+Condition: {condition_badge_label(item)} ({condition})
+Freshness: {freshness_text(item)}
+
+Risk notes: {risk_text}
+
+{base_url(item)}
+"""
+
+def format_private_item(item, brand, score, market_low, market_high, comp_count):
+    title = item.get("title", "No title")
+    price = price_float(item.get("price"))
+    category = detect_category(item)
+    condition = item.get("status") or item.get("status_title") or "?"
+    size_badge, size_value = size_match(item, category)
+    risk_badge, risk_text = risk_badge_and_text(item, brand, market_low)
+
+    market = f"£{market_low}–£{market_high}" if market_low and market_high else "unknown"
+
+    return f"""£{int(price)} | {score}/100 pts | Risk: {risk_badge}
+
+{brand}
+{title}
+
+Market: {market} | {market_confidence_label(comp_count)} | {comp_count} comps
+Demand: {demand_badge_label(item, category)}
+Freshness: {freshness_text(item)}
+Condition: {condition_badge_label(item)} ({condition})
+Size: {size_badge} ({size_value})
+Category: {category}
+
+Risk notes: {risk_text}
+
+{base_url(item)}
 """
 
 
 # =====================
-# FETCH / MAIN
+# FETCH / ROUTING / MAIN
 # =====================
 
 def fetch(search):
@@ -836,29 +934,30 @@ def fetch(search):
         print("FETCH ERROR:", e)
         return []
 
-def route_message(item, score, market_low, msg):
-    sent = False
+def route_message(item, brand, score, market_low, market_high, comp_count):
+    sent_to_channel = False
 
-    if is_resell_item(score, item, market_low):
-        send_to(CHAT_RESELL, msg)
-        sent = True
+    if is_best_item(score, item, market_low, comp_count):
+        send_to(CHAT_BEST, format_best_item(item, brand, score, market_low, market_high, comp_count))
+        sent_to_channel = True
 
     if is_personal_item(score, item):
-        send_to(CHAT_PERSONAL, msg)
-        sent = True
+        send_to(CHAT_PERSONAL, format_personal_item(item, brand, score, market_low, market_high, comp_count))
+        sent_to_channel = True
 
-    # Все / All — всё, что прошло фильтры
-    send_to(CHAT_ALL, msg)
+    if is_resell_item(score, item, market_low):
+        send_to(CHAT_RESELL, format_resell_item(item, brand, score, market_low, market_high, comp_count))
+        sent_to_channel = True
 
-    # Личные дубли тебе и другу
-    send_private_copies(msg)
-
-    return sent
+    if not sent_to_channel:
+        send_private_copies(format_private_item(item, brand, score, market_low, market_high, comp_count))
+    else:
+        send_private_copies(format_private_item(item, brand, score, market_low, market_high, comp_count))
 
 def main():
-    print("FINAL FULL BOT STARTED")
-    send_to(CHAT_ALL, "FINAL FULL BOT STARTED")
-    send_private_copies("FINAL FULL BOT STARTED")
+    print("FINAL BOT STARTED")
+    send_to(CHAT_BEST, "FINAL BOT STARTED")
+    send_private_copies("FINAL BOT STARTED")
 
     refresh_cookies()
 
@@ -907,28 +1006,15 @@ def main():
             )
 
             score = score_item(item, brand, market_low, comp_count)
-            is_vip = super_signal(score, item, market_low)
 
-            msg = format_item(
-                item,
-                search,
-                brand,
-                score,
-                market_low,
-                market_high,
-                comp_count,
-                vip=is_vip
-            )
-
-            print(msg)
-            route_message(item, score, market_low, msg)
+            print(item.get("title"), score)
+            route_message(item, brand, score, market_low, market_high, comp_count)
 
             time.sleep(random.randint(8, 20))
 
         long_delay = random.randint(CYCLE_DELAY_MIN, CYCLE_DELAY_MAX)
         print("CYCLE DONE. SLEEP:", long_delay)
         time.sleep(long_delay)
-
 
 if __name__ == "__main__":
     main()
