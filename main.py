@@ -11,19 +11,22 @@ BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 CHAT_IDS = ["8104561365", "1508784719"]
 
 MAX_PRICE = 150
-MAX_ITEM_AGE_MINUTES = 60
 
-UNKNOWN_AGE_MAX_LIKES = 3
-UNKNOWN_AGE_MAX_POSITION = 15
+MAX_ITEM_AGE_MINUTES = 90
+UNKNOWN_AGE_MAX_LIKES = 5
+UNKNOWN_AGE_MAX_POSITION = 30
 
-PER_PAGE = 120
-MAX_PER_CYCLE = 40
+PER_PAGE = 80
+MAX_PER_CYCLE = 30
+DOMAINS_PER_CYCLE = 2
 
-REQUEST_DELAY = (0.8, 2)
-DOMAIN_DELAY = (1.5, 3.5)
-CYCLE_DELAY = (20, 45)
+REQUEST_DELAY = (1.5, 3.5)
+DOMAIN_DELAY = (6, 12)
+CYCLE_DELAY = (60, 120)
 
-DOMAIN_COOLDOWN_ON_BLOCK = (300, 900)
+DOMAIN_COOLDOWN_ON_BLOCK = (600, 1200)
+GLOBAL_COOLDOWN_ON_MANY_BLOCKS = (900, 1800)
+
 DB_PATH = "seen.db"
 
 VINTED_BASES = [
@@ -338,7 +341,7 @@ def is_shipping_ok(item):
     if country:
         return country in ALLOWED_COUNTRIES
 
-    return item.get("source_base") in VINTED_BASES
+    return True
 
 def parse_created_at(item):
     for key in [
@@ -560,7 +563,7 @@ def score_item(item):
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     if likes == 0:
         score += 3
-    elif likes <= 3:
+    elif likes <= 5:
         score += 1
 
     return min(score, 100)
@@ -604,7 +607,7 @@ def format_msg(item):
 
     return msg
 
-# ================= FETCH =================
+# ================= ANTI-BLOCK =================
 
 def domain_is_blocked(base):
     until = domain_blocked_until.get(base, 0)
@@ -614,6 +617,34 @@ def block_domain(base):
     cooldown = random.randint(*DOMAIN_COOLDOWN_ON_BLOCK)
     domain_blocked_until[base] = time.time() + cooldown
     print(f"DOMAIN COOLDOWN: {base} for {cooldown} sec")
+
+def active_domains():
+    now = time.time()
+    return [
+        base for base in VINTED_BASES
+        if domain_blocked_until.get(base, 0) <= now
+    ]
+
+def active_domains_count():
+    return len(active_domains())
+
+def global_cooldown_if_needed():
+    global session
+
+    if active_domains_count() > 1:
+        return
+
+    sleep_time = random.randint(*GLOBAL_COOLDOWN_ON_MANY_BLOCKS)
+    print("GLOBAL COOLDOWN:", sleep_time)
+
+    session = requests.Session()
+    time.sleep(sleep_time)
+
+    for base in VINTED_BASES:
+        domain_blocked_until[base] = 0
+        refresh_cookies(base)
+
+# ================= FETCH =================
 
 def fetch_latest(base):
     if domain_is_blocked(base):
@@ -659,8 +690,8 @@ def fetch_latest(base):
 # ================= MAIN =================
 
 def run():
-    print("FINAL BALANCED FLOW BOT STARTED")
-    send("FINAL BALANCED FLOW BOT STARTED")
+    print("FINAL STABLE FLOW BOT STARTED")
+    send("FINAL STABLE FLOW BOT STARTED")
 
     for base in VINTED_BASES:
         refresh_cookies(base)
@@ -670,10 +701,18 @@ def run():
     while True:
         try:
             cycle += 1
+            global_cooldown_if_needed()
+
             collected = []
 
-            bases = VINTED_BASES[:]
+            bases = active_domains()
             random.shuffle(bases)
+            bases = bases[:DOMAINS_PER_CYCLE]
+
+            if not bases:
+                print("NO ACTIVE DOMAINS")
+                time.sleep(60)
+                continue
 
             for base in bases:
                 items = fetch_latest(base)
@@ -682,44 +721,72 @@ def run():
 
             processed = []
 
+            stats = {
+                "collected": len(collected),
+                "seen": 0,
+                "price": 0,
+                "brand": 0,
+                "shipping": 0,
+                "fake": 0,
+                "women": 0,
+                "junk": 0,
+                "category": 0,
+                "size": 0,
+                "freshness": 0,
+                "passed": 0,
+            }
+
             for item in collected:
                 item_id = str(item.get("id"))
 
                 if not item_id or is_seen(item_id):
+                    stats["seen"] += 1
                     continue
 
                 if price_float(item.get("price")) > MAX_PRICE:
+                    stats["price"] += 1
                     continue
 
                 brand = detect_brand(item)
                 if not brand:
+                    stats["brand"] += 1
                     continue
 
                 item["brand"] = brand
 
                 if not is_shipping_ok(item):
+                    stats["shipping"] += 1
                     continue
 
                 if is_fake_or_bad(item):
+                    stats["fake"] += 1
                     continue
 
                 if is_women(item):
+                    stats["women"] += 1
                     continue
 
                 if is_junk(item):
+                    stats["junk"] += 1
                     continue
 
                 if not is_mens_clothing_or_shoes(item):
+                    stats["category"] += 1
                     continue
 
                 if not size_ok(item):
+                    stats["size"] += 1
                     continue
 
                 if not freshness_ok(item):
+                    stats["freshness"] += 1
                     continue
 
                 item["score"] = score_item(item)
                 processed.append(item)
+                stats["passed"] += 1
+
+            print("FILTER STATS:", stats)
 
             processed.sort(
                 key=lambda x: (
