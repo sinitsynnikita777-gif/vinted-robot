@@ -5,20 +5,18 @@ import requests
 import re
 from datetime import datetime, timezone
 
-# ================= CONFIG =================
-
 BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
-CHAT_IDS = ["8104561365", "1508784719","7552373815"]
+CHAT_IDS = ["8104561365", "1508784719"]
 
 MAX_PRICE = 150
 
-MAX_ITEM_AGE_MINUTES = 90
-UNKNOWN_AGE_MAX_LIKES = 5
-UNKNOWN_AGE_MAX_POSITION = 30
+MAX_ITEM_AGE_MINUTES = 180
+UNKNOWN_AGE_MAX_LIKES = 2
+UNKNOWN_AGE_MAX_POSITION = 10
+UNKNOWN_AGE_MAX_PRICE = 120
 
 PER_PAGE = 30
 MAX_PER_CYCLE = 40
-
 DOMAINS_PER_CYCLE = 2
 BRANDS_PER_CYCLE = 10
 
@@ -54,10 +52,7 @@ BASE_REGION = {
 
 domain_blocked_until = {}
 
-# ================= SIZES =================
-
 TOP_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
-
 PANTS_W = list(range(30, 35))
 PANTS_LETTER = ["m", "l"]
 PANTS_EU = ["46", "48", "50", "52"]
@@ -69,8 +64,6 @@ SHOES_US = ["9", "9.5", "10", "10.5", "11"]
 SHOES_JP_CM = ["27", "27.5", "28", "28.5"]
 
 ALLOW_ONE_SIZE = True
-
-# ================= BRANDS =================
 
 BRANDS_MAP = {
     "Insky": ["insky"],
@@ -135,8 +128,6 @@ TOP_BRANDS = [
     "Carol Christian Poell",
 ]
 
-# ================= FILTERS =================
-
 BAD_WORDS = [
     "fake", "replica", "rep ", " reps", "copy", "bootleg", "ua", "mirror", "1:1",
     "not authentic", "not real", "inspired", "dupe", "aliexpress", "dhgate",
@@ -175,8 +166,6 @@ CLOTHING_WORDS = [
     "sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles",
 ]
 
-# ================= DATABASE =================
-
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
 
@@ -207,8 +196,6 @@ def cleanup_seen():
     """)
     conn.commit()
 
-# ================= SESSION =================
-
 session = requests.Session()
 
 USER_AGENTS = [
@@ -237,8 +224,6 @@ def refresh_cookies(base):
     except Exception as e:
         print("REFRESH ERROR:", e)
 
-# ================= TELEGRAM =================
-
 def send(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
@@ -255,8 +240,6 @@ def send(msg):
             )
         except Exception as e:
             print("TG ERROR:", e)
-
-# ================= HELPERS =================
 
 def norm(x):
     return (x or "").lower()
@@ -356,6 +339,10 @@ def parse_created_at(item):
         "created_at_datetime",
         "photo_high_resolution_created_at",
         "created_at_timestamp",
+        "created_at_date",
+        "created_at_time",
+        "updated_at",
+        "updated_at_ts",
     ]:
         value = item.get(key)
 
@@ -365,6 +352,9 @@ def parse_created_at(item):
         if isinstance(value, int):
             return datetime.fromtimestamp(value, tz=timezone.utc)
 
+        if isinstance(value, float):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -372,6 +362,38 @@ def parse_created_at(item):
                 pass
 
     return None
+
+def fetch_item_details(item):
+    item_id = item.get("id")
+    base = item.get("source_base", "https://www.vinted.co.uk")
+
+    if not item_id:
+        return item
+
+    try:
+        url = f"{base}/api/v2/items/{item_id}"
+        r = session.get(url, headers=headers(base), timeout=20)
+        print(base, "DETAIL", item_id, r.status_code)
+
+        if r.status_code in [401, 403, 429]:
+            block_domain(base)
+            refresh_cookies(base)
+            return item
+
+        if r.status_code != 200:
+            return item
+
+        data = r.json()
+        details = data.get("item") or data
+
+        if isinstance(details, dict):
+            item.update(details)
+
+        return item
+
+    except Exception as e:
+        print("DETAIL ERROR:", e)
+        return item
 
 def age_minutes(item):
     dt = parse_created_at(item)
@@ -385,18 +407,24 @@ def freshness_ok(item):
     age = age_minutes(item)
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     pos = item.get("pos", 999)
+    price = price_float(item.get("price"))
 
     if age is not None:
         return age <= MAX_ITEM_AGE_MINUTES
 
-    return likes <= UNKNOWN_AGE_MAX_LIKES and pos <= UNKNOWN_AGE_MAX_POSITION
+    return (
+        likes <= UNKNOWN_AGE_MAX_LIKES
+        and pos <= UNKNOWN_AGE_MAX_POSITION
+        and price <= UNKNOWN_AGE_MAX_PRICE
+    )
 
 def freshness_text(item):
     age = age_minutes(item)
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
+    pos = item.get("pos", "?")
 
     if age is None:
-        return f"unknown, {likes} likes"
+        return f"unknown, {likes} likes, Top {pos}"
 
     if age < 60:
         return f"{int(age)} min ago"
@@ -511,10 +539,7 @@ def risk(item):
     price = price_float(item.get("price"))
     condition = norm(item.get("status") or item.get("status_title"))
 
-    if has_any(text, [
-        "fake", "replica", "not authentic", "not real",
-        "no tag", "missing tag", "cut tag", "without tag"
-    ]):
+    if has_any(text, ["fake", "replica", "not authentic", "not real", "no tag", "missing tag", "cut tag", "without tag"]):
         return "high"
 
     if price > 120:
@@ -569,7 +594,7 @@ def score_item(item):
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     if likes == 0:
         score += 3
-    elif likes <= 5:
+    elif likes <= 2:
         score += 1
 
     return min(score, 100)
@@ -613,8 +638,6 @@ def format_msg(item):
 
     return msg
 
-# ================= BRAND QUEUE =================
-
 def get_next_brands():
     global brand_queue
 
@@ -626,8 +649,6 @@ def get_next_brands():
     brand_queue = brand_queue[BRANDS_PER_CYCLE:]
 
     return selected
-
-# ================= ANTI-BLOCK =================
 
 def domain_is_blocked(base):
     until = domain_blocked_until.get(base, 0)
@@ -663,8 +684,6 @@ def global_cooldown_if_needed():
     for base in VINTED_BASES:
         domain_blocked_until[base] = 0
         refresh_cookies(base)
-
-# ================= FETCH =================
 
 def fetch_search(base, search):
     if domain_is_blocked(base):
@@ -708,11 +727,9 @@ def fetch_search(base, search):
         print("SEARCH ERROR:", e)
         return []
 
-# ================= MAIN =================
-
 def run():
-    print("FINAL BRAND ROUND-ROBIN BOT STARTED")
-    send("FINAL BRAND ROUND-ROBIN BOT STARTED")
+    print("FINAL BRAND BOT WITH DETAILS FRESHNESS STARTED")
+    send("FINAL BRAND BOT WITH DETAILS FRESHNESS STARTED")
 
     for base in VINTED_BASES:
         refresh_cookies(base)
@@ -803,6 +820,8 @@ def run():
                 if not size_ok(item):
                     stats["size"] += 1
                     continue
+
+                item = fetch_item_details(item)
 
                 if not freshness_ok(item):
                     stats["freshness"] += 1
