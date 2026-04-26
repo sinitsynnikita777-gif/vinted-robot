@@ -2,6 +2,7 @@ import time
 import random
 import sqlite3
 import requests
+import re
 from datetime import datetime, timezone
 
 # ================= CONFIG =================
@@ -10,19 +11,19 @@ BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 CHAT_IDS = ["8104561365", "1508784719"]
 
 MAX_PRICE = 150
-MAX_ITEM_AGE_MINUTES = 45
+MAX_ITEM_AGE_MINUTES = 60
 
-UNKNOWN_AGE_MAX_LIKES = 2
-UNKNOWN_AGE_MAX_POSITION = 10
+UNKNOWN_AGE_MAX_LIKES = 3
+UNKNOWN_AGE_MAX_POSITION = 15
 
-PER_PAGE = 80
-MAX_PER_CYCLE = 30
+PER_PAGE = 120
+MAX_PER_CYCLE = 40
 
 REQUEST_DELAY = (0.8, 2)
-DOMAIN_DELAY = (1, 3)
-CYCLE_DELAY = (15, 30)
-BLOCK_SLEEP = (900, 1800)
+DOMAIN_DELAY = (1.5, 3.5)
+CYCLE_DELAY = (20, 45)
 
+DOMAIN_COOLDOWN_ON_BLOCK = (300, 900)
 DB_PATH = "seen.db"
 
 VINTED_BASES = [
@@ -45,6 +46,8 @@ BASE_REGION = {
     "https://www.vinted.nl": "NL",
 }
 
+domain_blocked_until = {}
+
 # ================= SIZES =================
 
 TOP_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
@@ -65,40 +68,39 @@ ALLOW_ONE_SIZE = True
 
 BRANDS_MAP = {
     "Insky": ["insky"],
-    "Gosha Rubchinskiy": ["gosha rubchinskiy", "gosha rubchinsky", "gosha"],
+    "Gosha Rubchinskiy": ["gosha rubchinskiy", "gosha rubchinsky"],
     "Boris Bidjan Saberi": ["boris bidjan saberi", "boris bidjan", "bbs"],
-    "Raf Simons": ["raf simons", "rafsimons", "raf"],
+    "Raf Simons": ["raf simons", "rafsimons"],
     "Maison Mihara Yasuhiro": ["maison mihara yasuhiro", "mihara yasuhiro", "mihara", "mmy"],
-    "Helmut Lang": ["helmut lang", "helmut"],
+    "Helmut Lang": ["helmut lang"],
     "1017 ALYX 9SM": ["1017 alyx 9sm", "1017 alyx", "alyx"],
     "Moon Boot": ["moon boot", "moon boots"],
-    "New Rock": ["new rock", "nr"],
-    "SWEAR London": ["swear london", "swear"],
-    "Enfants Riches Deprimes": ["enfants riches deprimes", "enfants riches déprimés", "erd"],
+    "New Rock": ["new rock"],
+    "SWEAR London": ["swear london"],
+    "Enfants Riches Deprimes": ["enfants riches deprimes", "enfants riches déprimés"],
     "Vetements": ["vetements", "vetement"],
-    "Rick Owens": ["rick owens", "rickowens", "rick"],
-    "Rick Owens DRKSHDW": ["rick owens drkshdw", "drkshdw", "darkshadow", "dark shadow"],
-    "No Faith Studios": ["no faith studios", "no faith", "nfs"],
+    "Rick Owens": ["rick owens", "rickowens", "drkshdw", "darkshadow", "dark shadow"],
+    "No Faith Studios": ["no faith studios", "no faith"],
     "Attachment": ["attachment"],
-    "Julius": ["julius", "julius 7"],
+    "Julius": ["julius"],
     "Miu Miu": ["miu miu", "miumiu"],
-    "Takahiromiyashita The Soloist": ["takahiromiyashita the soloist", "the soloist", "soloist", "tts"],
-    "Cav Empt": ["cav empt", "cavempt", "c.e", "ce cav empt"],
-    "If Six Was Nine": ["if six was nine", "ifsixwasnine", "iswn"],
-    "In The Attic": ["in the attic", "ita"],
-    "West Coast Choppers": ["west coast choppers", "wcc"],
-    "Hysteric Glamour": ["hysteric glamour", "hysteric", "husteric"],
+    "Takahiromiyashita The Soloist": ["takahiromiyashita the soloist", "the soloist"],
+    "Cav Empt": ["cav empt", "cavempt", "ce cav empt"],
+    "If Six Was Nine": ["if six was nine", "ifsixwasnine"],
+    "In The Attic": ["in the attic"],
+    "West Coast Choppers": ["west coast choppers"],
+    "Hysteric Glamour": ["hysteric glamour"],
     "Martine Rose": ["martine rose"],
     "Maison Margiela": ["maison margiela", "margiela", "maison martin margiela", "margeila", "margela", "margiella", "mm6"],
-    "Carol Christian Poell": ["carol christian poell", "ccp"],
-    "5351 Pour Les Hommes": ["5351 pour les hommes", "5351 for les hommes", "5351"],
+    "Carol Christian Poell": ["carol christian poell"],
+    "5351 Pour Les Hommes": ["5351 pour les hommes", "5351 for les hommes"],
     "Demonia Cult": ["demonia cult", "demonia"],
-    "Acne Studios": ["acne studios", "acne"],
+    "Acne Studios": ["acne studios"],
     "KMRii": ["kmrii"],
-    "Le Grande Bleu": ["le grande bleu", "le grand bleu", "l.g.b.", "lgb"],
+    "Le Grande Bleu": ["le grande bleu", "le grand bleu"],
     "Jun Takahashi": ["jun takahashi"],
-    "Junya Watanabe": ["junya watanabe", "junya"],
-    "Kiko Kostadinov": ["kiko kostadinov", "kiko"],
+    "Junya Watanabe": ["junya watanabe"],
+    "Kiko Kostadinov": ["kiko kostadinov"],
     "Seditionaries": ["seditionaries"],
     "20471120": ["20471120"],
     "Tornado Mart": ["tornado mart"],
@@ -107,15 +109,14 @@ BRANDS_MAP = {
     "Roen": ["roen"],
     "14th Addiction": ["14th addiction", "fourteenth addiction"],
     "VTMNTS": ["vtmnts"],
-    "Beauty Beast": ["beauty beast", "beauty:beast"],
-    "PACCBET": ["paccbet", "rassvet", "рассвет"],
-    "Vivienne Westwood": ["vivienne westwood", "westwood"],
+    "Beauty Beast": ["beauty beast"],
+    "PACCBET": ["paccbet", "rassvet"],
+    "Vivienne Westwood": ["vivienne westwood"],
     "Balenciaga": ["balenciaga"],
 }
 
 TOP_BRANDS = [
     "Rick Owens",
-    "Rick Owens DRKSHDW",
     "Maison Margiela",
     "Raf Simons",
     "Vetements",
@@ -136,6 +137,7 @@ BAD_WORDS = [
     "damaged", "ripped", "stains", "stained", "dirty", "poor condition",
     "hole", "holes", "destroyed", "needs repair", "flawed",
     "kids", "child", "junior", "youth", "boys", "girls",
+    "vintage style", "custom", "handmade", "reworked",
 ]
 
 WOMEN_WORDS = [
@@ -191,7 +193,7 @@ def cleanup_seen():
     WHERE id NOT IN (
         SELECT id FROM seen_items
         ORDER BY created_at DESC
-        LIMIT 8000
+        LIMIT 10000
     )
     """)
     conn.commit()
@@ -261,6 +263,35 @@ def price_float(price):
     except:
         return 999
 
+def clean_brand_text(x):
+    return re.sub(r"[^a-z0-9]+", " ", str(x or "").lower()).strip()
+
+def has_phrase(text, phrase):
+    return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
+
+def detect_brand(item):
+    brand_title = clean_brand_text(item.get("brand_title"))
+    title = clean_brand_text(item.get("title"))
+    desc = clean_brand_text(item.get("description"))
+    text = f"{brand_title} {title} {desc}"
+
+    for brand, variants in BRANDS_MAP.items():
+        brand_clean = clean_brand_text(brand)
+
+        if brand_title == brand_clean:
+            return brand
+
+        for variant in variants:
+            v = clean_brand_text(variant)
+
+            if len(v) < 5:
+                continue
+
+            if has_phrase(text, v):
+                return brand
+
+    return None
+
 def full_text(item):
     return " ".join([
         str(item.get("title") or ""),
@@ -277,16 +308,6 @@ def full_text(item):
 def has_any(text, words):
     text = norm(text)
     return any(w in text for w in words)
-
-def detect_brand(text):
-    text = norm(text)
-
-    for brand, variants in BRANDS_MAP.items():
-        for variant in variants:
-            if variant in text:
-                return brand
-
-    return None
 
 def seller_country_code(item):
     user = item.get("user") or {}
@@ -539,7 +560,7 @@ def score_item(item):
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     if likes == 0:
         score += 3
-    elif likes <= 2:
+    elif likes <= 3:
         score += 1
 
     return min(score, 100)
@@ -585,7 +606,20 @@ def format_msg(item):
 
 # ================= FETCH =================
 
+def domain_is_blocked(base):
+    until = domain_blocked_until.get(base, 0)
+    return time.time() < until
+
+def block_domain(base):
+    cooldown = random.randint(*DOMAIN_COOLDOWN_ON_BLOCK)
+    domain_blocked_until[base] = time.time() + cooldown
+    print(f"DOMAIN COOLDOWN: {base} for {cooldown} sec")
+
 def fetch_latest(base):
+    if domain_is_blocked(base):
+        print("SKIP BLOCKED DOMAIN:", base)
+        return []
+
     url = f"{base}/api/v2/catalog/items"
 
     params = {
@@ -600,10 +634,8 @@ def fetch_latest(base):
         print(base, "LATEST", r.status_code)
 
         if r.status_code in [401, 403, 429]:
-            sleep_time = random.randint(*BLOCK_SLEEP)
-            print("BLOCKED. SLEEP:", sleep_time)
+            block_domain(base)
             refresh_cookies(base)
-            time.sleep(sleep_time)
             return []
 
         if r.status_code != 200:
@@ -627,8 +659,8 @@ def fetch_latest(base):
 # ================= MAIN =================
 
 def run():
-    print("FAST BALANCED SNIPER BOT STARTED")
-    send("FAST BALANCED SNIPER BOT STARTED")
+    print("FINAL BALANCED FLOW BOT STARTED")
+    send("FINAL BALANCED FLOW BOT STARTED")
 
     for base in VINTED_BASES:
         refresh_cookies(base)
@@ -659,9 +691,7 @@ def run():
                 if price_float(item.get("price")) > MAX_PRICE:
                     continue
 
-                text = full_text(item)
-                brand = detect_brand(text)
-
+                brand = detect_brand(item)
                 if not brand:
                     continue
 
