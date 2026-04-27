@@ -16,7 +16,6 @@ DB_PATH = "seen.db"
 MAX_PRICE = 150
 MAX_PER_CYCLE = 35
 
-# Freshness
 MAX_ITEM_AGE_MINUTES = 180
 
 UNKNOWN_TOP_BRAND_MAX_LIKES = 2
@@ -27,22 +26,18 @@ UNKNOWN_OTHER_MAX_LIKES = 1
 UNKNOWN_OTHER_MAX_POSITION = 8
 UNKNOWN_OTHER_MAX_PRICE = 100
 
-# Search
 PER_PAGE = 25
 REGIONS_PER_CYCLE = 2
 OTHER_BRANDS_PER_CYCLE = 8
 
-# Delays
 SEARCH_DELAY = (7, 13)
 DOMAIN_DELAY = (15, 30)
 CYCLE_DELAY = (90, 180)
 TELEGRAM_DELAY = (1.2, 1.8)
 
-# Anti-ban
 DOMAIN_COOLDOWN_ON_403 = (20 * 60, 45 * 60)
 GLOBAL_COOLDOWN_ON_MANY_BLOCKS = (20 * 60, 40 * 60)
 
-# Detail requests
 DETAIL_ENABLED = True
 DETAIL_ALLOWED_REGIONS = ["UK"]
 DETAIL_MAX_POSITION = 5
@@ -51,65 +46,24 @@ DETAIL_DELAY = (18, 35)
 DETAIL_COOLDOWN_ON_403 = (45 * 60, 90 * 60)
 
 # ================= REGIONS =================
-# Priority:
-# Tier 1 = checked most often
-# Tier 2 = checked often
-# Tier 3 = checked sometimes
 
 REGIONS = {
-    "UK": {
-        "base": "https://www.vinted.co.uk",
-        "tier": 1,
-        "country_codes": ["gb", "uk"],
-    },
-    "FR": {
-        "base": "https://www.vinted.fr",
-        "tier": 1,
-        "country_codes": ["fr"],
-    },
-    "ES": {
-        "base": "https://www.vinted.es",
-        "tier": 2,
-        "country_codes": ["es"],
-    },
-    "IT": {
-        "base": "https://www.vinted.it",
-        "tier": 2,
-        "country_codes": ["it"],
-    },
-    "DE": {
-        "base": "https://www.vinted.de",
-        "tier": 3,
-        "country_codes": ["de"],
-    },
-    "BE": {
-        "base": "https://www.vinted.be",
-        "tier": 3,
-        "country_codes": ["be"],
-    },
-    "NL": {
-        "base": "https://www.vinted.nl",
-        "tier": 3,
-        "country_codes": ["nl"],
-    },
-    "IE": {
-        "base": "https://www.vinted.ie",
-        "tier": 3,
-        "country_codes": ["ie"],
-    },
+    "UK": {"base": "https://www.vinted.co.uk", "tier": 1, "country_codes": ["gb", "uk"]},
+    "FR": {"base": "https://www.vinted.fr", "tier": 1, "country_codes": ["fr"]},
+    "ES": {"base": "https://www.vinted.es", "tier": 2, "country_codes": ["es"]},
+    "IT": {"base": "https://www.vinted.it", "tier": 2, "country_codes": ["it"]},
+    "DE": {"base": "https://www.vinted.de", "tier": 3, "country_codes": ["de"]},
+    "BE": {"base": "https://www.vinted.be", "tier": 3, "country_codes": ["be"]},
+    "NL": {"base": "https://www.vinted.nl", "tier": 3, "country_codes": ["nl"]},
+    "IE": {"base": "https://www.vinted.ie", "tier": 3, "country_codes": ["ie"]},
 }
 
-ALLOWED_COUNTRIES = [
-    "gb", "uk", "ie", "fr", "es", "it", "de", "be", "nl"
-]
+ALLOWED_COUNTRIES = ["gb", "uk", "ie", "fr", "es", "it", "de", "be", "nl"]
 
 BASE_TO_REGION = {
     data["base"]: region
     for region, data in REGIONS.items()
 }
-
-domain_blocked_until = {}
-detail_blocked_until = {}
 
 # ================= SIZES =================
 
@@ -155,13 +109,8 @@ BRANDS_MAP = {
     "Hysteric Glamour": ["hysteric glamour"],
     "Martine Rose": ["martine rose"],
     "Maison Margiela": [
-        "maison margiela",
-        "margiela",
-        "maison martin margiela",
-        "margeila",
-        "margela",
-        "margiella",
-        "mm6",
+        "maison margiela", "margiela", "maison martin margiela",
+        "margeila", "margela", "margiella", "mm6"
     ],
     "Carol Christian Poell": ["carol christian poell"],
     "5351 Pour Les Hommes": ["5351 pour les hommes", "5351 for les hommes"],
@@ -202,11 +151,7 @@ TOP_BRANDS = [
     "Julius",
 ]
 
-OTHER_BRANDS = [
-    brand for brand in BRANDS_MAP.keys()
-    if brand not in TOP_BRANDS
-]
-
+OTHER_BRANDS = [brand for brand in BRANDS_MAP.keys() if brand not in TOP_BRANDS]
 brand_queue = []
 
 # ================= FILTER WORDS =================
@@ -229,9 +174,7 @@ WOMEN_WORDS = [
     "mini dress", "petite", "women's fit", "female fit",
 ]
 
-UNISEX_WORDS = [
-    "unisex", "mens", "men", "male", "oversized", "boxy", "boyfriend fit"
-]
+UNISEX_WORDS = ["unisex", "mens", "men", "male", "oversized", "boxy", "boyfriend fit"]
 
 JUNK_WORDS = [
     "book", "books", "magazine", "poster", "sticker", "cd", "dvd", "vinyl",
@@ -248,7 +191,6 @@ CLOTHING_WORDS = [
     "backpack", "rucksack", "belt",
     "sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles",
 ]
-
 # ================= DATABASE =================
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -303,6 +245,7 @@ class DomainSlot:
     detail_cooldown_until: float = 0
     health: float = 1.0
     last_request_at: float = 0
+    warmed: bool = False
 
 slots = {}
 
@@ -339,6 +282,7 @@ def refresh_slot(region):
 
 def now_ts():
     return time.time()
+
 # ================= BASIC HELPERS =================
 
 def norm(x):
@@ -378,7 +322,6 @@ def full_text(item):
         str(item.get("catalog_path") or ""),
     ]).lower()
 
-
 # ================= SEEN / DEDUP =================
 
 def is_seen(item_id):
@@ -397,8 +340,6 @@ def item_hash(item):
     title = clean_brand_text(item.get("title"))
     size = clean_brand_text(item.get("size_title"))
     price = int(price_float(item.get("price")))
-
-    # price bucket: убирает дубли с разницей в 1-2 евро/фунта
     price_bucket = round(price / 5) * 5
 
     return f"{brand}|{title}|{size}|{price_bucket}"
@@ -437,7 +378,6 @@ def cleanup_seen():
 
     conn.commit()
 
-
 # ================= BRAND DETECTION =================
 
 def detect_brand(item):
@@ -456,7 +396,6 @@ def detect_brand(item):
         for variant in variants:
             v = clean_brand_text(variant)
 
-            # короткие совпадения дают мусор
             if len(v) < 5:
                 continue
 
@@ -464,7 +403,6 @@ def detect_brand(item):
                 return brand
 
     return None
-
 
 # ================= REGION / SHIPPING =================
 
@@ -502,14 +440,10 @@ def item_region(item):
 def is_shipping_ok(item):
     country = seller_country_code(item)
 
-    # если страна продавца есть — фильтруем строго
     if country:
         return country in ALLOWED_COUNTRIES
 
-    # если API не дал страну — не режем, чтобы не терять вещи
     return True
-
-
 # ================= CATEGORY / FILTERS =================
 
 def category(item):
@@ -552,8 +486,10 @@ def category(item):
 
     return "Clothing"
 
+
 def is_fake_or_bad(item):
     return has_any(full_text(item), BAD_WORDS)
+
 
 def is_women(item):
     text = full_text(item)
@@ -564,7 +500,6 @@ def is_women(item):
         str(item.get("category_title") or ""),
     ]).lower()
 
-    # catalog_path режем жёстко
     if any(x in catalog for x in [
         "women", "ladies", "girls", "kids", "children", "baby"
     ]):
@@ -576,8 +511,10 @@ def is_women(item):
 
     return False
 
+
 def is_junk(item):
     return has_any(full_text(item), JUNK_WORDS)
+
 
 def is_mens_clothing_or_shoes(item):
     return has_any(full_text(item), CLOTHING_WORDS)
@@ -590,7 +527,6 @@ def size_ok(item):
     text = full_text(item)
     cat = category(item)
 
-    # аксессуары любого размера
     if cat in ["Belt", "Backpack", "Eyewear"]:
         return True
 
@@ -680,6 +616,7 @@ def parse_created_at(item):
 
     return None
 
+
 def age_minutes(item):
     dt = parse_created_at(item)
 
@@ -688,6 +625,7 @@ def age_minutes(item):
 
     return (datetime.now(timezone.utc) - dt).total_seconds() / 60
 
+
 def freshness_ok(item):
     age = age_minutes(item)
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
@@ -695,11 +633,9 @@ def freshness_ok(item):
     price = price_float(item.get("price"))
     brand = item.get("brand")
 
-    # если время есть — строго до 3 часов
     if age is not None:
         return age <= MAX_ITEM_AGE_MINUTES
 
-    # если времени нет — для топ-брендов чуть мягче
     if brand in TOP_BRANDS:
         return (
             likes <= UNKNOWN_TOP_BRAND_MAX_LIKES
@@ -707,12 +643,12 @@ def freshness_ok(item):
             and price <= UNKNOWN_TOP_BRAND_MAX_PRICE
         )
 
-    # остальные бренды строже
     return (
         likes <= UNKNOWN_OTHER_MAX_LIKES
         and pos <= UNKNOWN_OTHER_MAX_POSITION
         and price <= UNKNOWN_OTHER_MAX_PRICE
     )
+
 
 def freshness_text(item):
     age = age_minutes(item)
@@ -726,6 +662,8 @@ def freshness_text(item):
         return f"{int(age)} min ago"
 
     return f"{round(age / 60, 1)}h ago"
+
+
 # ================= SCORE / RISK =================
 
 def risk(item):
@@ -739,7 +677,6 @@ def risk(item):
     ]):
         return "high"
 
-    # слишком дешёвый топ-бренд — не режем, но помечаем
     if brand in TOP_BRANDS and price <= 25:
         return "medium"
 
@@ -748,11 +685,8 @@ def risk(item):
 
     return "low"
 
+
 def score_pre_item(item):
-    """
-    Быстрый score до detail.
-    Нужен, чтобы detail делать только для реально перспективных вещей.
-    """
     score = 0
 
     price = price_float(item.get("price"))
@@ -802,14 +736,13 @@ def score_pre_item(item):
 
     return min(score, 100)
 
+
 def score_item(item):
     score = score_pre_item(item)
 
-    # небольшой бонус за точный размер
     if size_ok(item):
         score += 5
 
-    # если есть реальное время и вещь очень свежая
     age = age_minutes(item)
     if age is not None:
         if age <= 30:
@@ -821,12 +754,14 @@ def score_item(item):
 
     return min(score, 100)
 
+
 def color(score):
     if score >= 80:
         return "🟢"
     if score >= 50:
         return "🟡"
     return "🔴"
+
 
 def is_meat(item):
     price = price_float(item.get("price"))
@@ -859,6 +794,7 @@ def send(msg):
         except Exception as e:
             print("TG ERROR:", e)
 
+
 def format_msg(item):
     prefix = "!!! MEAT | " if is_meat(item) else ""
 
@@ -889,11 +825,7 @@ def format_msg(item):
     msg += f"Link: {link}"
 
     return msg
-
-
 # ================= REGION ROTATION =================
-
-region_cycle_counter = 0
 
 def region_weight(region):
     tier = REGIONS[region]["tier"]
@@ -903,6 +835,7 @@ def region_weight(region):
     if tier == 2:
         return 3
     return 1
+
 
 def active_regions():
     now = now_ts()
@@ -914,36 +847,30 @@ def active_regions():
 
     return result
 
+
 def choose_regions():
-    """
-    Выбирает 2 региона за цикл.
-    Tier 1 попадает чаще, Tier 2 иногда, Tier 3 редко.
-    """
     available = active_regions()
 
     if not available:
         return []
 
-    # если доступных меньше лимита — берём сколько есть
     if len(available) <= REGIONS_PER_CYCLE:
         random.shuffle(available)
         return available
 
     weighted = []
-
     for region in available:
         weighted.extend([region] * region_weight(region))
 
     selected = []
-
     attempts = 0
-    while len(selected) < REGIONS_PER_CYCLE and attempts < 50:
+
+    while len(selected) < REGIONS_PER_CYCLE and attempts < 80:
         r = random.choice(weighted)
         if r not in selected:
             selected.append(r)
         attempts += 1
 
-    # страховка
     if len(selected) < REGIONS_PER_CYCLE:
         rest = [r for r in available if r not in selected]
         random.shuffle(rest)
@@ -956,10 +883,6 @@ def choose_regions():
 # ================= BRAND ROTATION =================
 
 def get_next_brands():
-    """
-    TOP_BRANDS каждый цикл.
-    OTHER_BRANDS — по очереди.
-    """
     global brand_queue
 
     if len(brand_queue) < OTHER_BRANDS_PER_CYCLE:
@@ -976,23 +899,28 @@ def get_next_brands():
     return final
 
 
-# ================= COOLDOWNS =================
+# ================= COOLDOWNS / ANTI-BAN =================
 
 def cooldown_slot(region, reason="unknown"):
     slot = slots[region]
     cooldown = random.randint(*DOMAIN_COOLDOWN_ON_403)
+
     slot.cooldown_until = now_ts() + cooldown
     slot.health = max(0.1, slot.health * 0.6)
+    slot.warmed = False
 
     print(f"DOMAIN COOLDOWN: {region} for {cooldown} sec | reason={reason}")
+
 
 def cooldown_detail(region, reason="detail"):
     slot = slots[region]
     cooldown = random.randint(*DETAIL_COOLDOWN_ON_403)
+
     slot.detail_cooldown_until = now_ts() + cooldown
     slot.health = max(0.1, slot.health * 0.75)
 
     print(f"DETAIL COOLDOWN: {region} for {cooldown} sec | reason={reason}")
+
 
 def global_cooldown_if_needed():
     active = active_regions()
@@ -1005,17 +933,11 @@ def global_cooldown_if_needed():
 
     time.sleep(cooldown)
 
-    # после глобальной паузы пересобираем сессии
     for region in REGIONS.keys():
         refresh_slot(region)
 
 
-# ================= REQUESTS =================
-
 def controlled_sleep(slot, delay_range):
-    """
-    Не даёт одному региону стрелять слишком часто.
-    """
     lo, hi = delay_range
     gap = random.uniform(lo, hi)
 
@@ -1025,12 +947,45 @@ def controlled_sleep(slot, delay_range):
 
     slot.last_request_at = now_ts()
 
+
+def warmup_region(region):
+    slot = slots[region]
+
+    if slot.cooldown_until > now_ts():
+        return False
+
+    if slot.warmed:
+        return True
+
+    try:
+        r = slot.session.get(slot.base + "/", timeout=25)
+        print(region, "WARMUP", r.status_code)
+
+        if r.status_code in [401, 403, 429]:
+            cooldown_slot(region, f"{r.status_code} warmup")
+            return False
+
+        slot.warmed = True
+        time.sleep(random.uniform(2, 5))
+        return True
+
+    except Exception as e:
+        print("WARMUP ERROR:", region, e)
+        return False
+
+
+# ================= FETCH SEARCH / DETAIL =================
+
 def fetch_search(region, search):
     slot = slots[region]
     base = slot.base
 
     if slot.cooldown_until > now_ts():
         print("SKIP BLOCKED REGION:", region)
+        return []
+
+    if not warmup_region(region):
+        print("SKIP SEARCH AFTER WARMUP FAIL:", region)
         return []
 
     controlled_sleep(slot, SEARCH_DELAY)
@@ -1051,8 +1006,8 @@ def fetch_search(region, search):
         r = slot.session.get(url, params=params, timeout=25)
         print(region, "SEARCH", search, r.status_code)
 
-        if r.status_code == 403:
-            cooldown_slot(region, "403 search")
+        if r.status_code in [401, 403]:
+            cooldown_slot(region, f"{r.status_code} search")
             return []
 
         if r.status_code == 429:
@@ -1079,6 +1034,7 @@ def fetch_search(region, search):
         print("SEARCH ERROR:", region, e)
         slot.health = max(0.2, slot.health * 0.9)
         return []
+
 
 def should_fetch_detail(item):
     if not DETAIL_ENABLED:
@@ -1111,6 +1067,7 @@ def should_fetch_detail(item):
 
     return True
 
+
 def fetch_item_details(item):
     region = item_source_region(item)
     slot = slots.get(region)
@@ -1119,6 +1076,9 @@ def fetch_item_details(item):
         return item
 
     if not should_fetch_detail(item):
+        return item
+
+    if not warmup_region(region):
         return item
 
     controlled_sleep(slot, DETAIL_DELAY)
@@ -1133,8 +1093,8 @@ def fetch_item_details(item):
         r = slot.session.get(url, timeout=25)
         print(region, "DETAIL", item_id, r.status_code)
 
-        if r.status_code == 403:
-            cooldown_detail(region, "403 detail")
+        if r.status_code in [401, 403]:
+            cooldown_detail(region, f"{r.status_code} detail")
             return item
 
         if r.status_code == 429:
@@ -1157,7 +1117,9 @@ def fetch_item_details(item):
         print("DETAIL ERROR:", region, e)
         slot.health = max(0.2, slot.health * 0.9)
         return item
-    # ================= MAIN PROCESSING =================
+
+
+# ================= PROCESSING =================
 
 def process_items(collected):
     processed = []
@@ -1226,7 +1188,6 @@ def process_items(collected):
 
         item["score_pre"] = score_pre_item(item)
 
-        # detail только для короткого shortlist
         item = fetch_item_details(item)
 
         if not freshness_ok(item):
@@ -1293,6 +1254,7 @@ def run():
     while True:
         try:
             cycle += 1
+
             print("\n==============================")
             print("CYCLE:", cycle)
             print("==============================")
@@ -1321,11 +1283,14 @@ def run():
 
                 print("START REGION:", region)
 
+                if not warmup_region(region):
+                    print("SKIP REGION AFTER WARMUP FAIL:", region)
+                    continue
+
                 for brand in selected_brands:
                     items = fetch_search(region, brand)
                     collected.extend(items)
 
-                    # маленький шанс длинной паузы, чтобы не быть роботом
                     if random.random() < 0.08:
                         extra = random.randint(25, 70)
                         print("BURST PAUSE:", extra)
