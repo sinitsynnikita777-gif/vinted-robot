@@ -4,55 +4,117 @@ import sqlite3
 import requests
 import re
 from datetime import datetime, timezone
+from dataclasses import dataclass
+
+# ================= CONFIG =================
 
 BOT_TOKEN = "8714724829:AAGZ1HLaq4tRJgKCwD1Clif_3CjvYK1IFpE"
 CHAT_IDS = ["8104561365", "1508784719"]
 
-MAX_PRICE = 150
-
-MAX_ITEM_AGE_MINUTES = 180
-UNKNOWN_AGE_MAX_LIKES = 2
-UNKNOWN_AGE_MAX_POSITION = 10
-UNKNOWN_AGE_MAX_PRICE = 120
-
-PER_PAGE = 30
-MAX_PER_CYCLE = 40
-DOMAINS_PER_CYCLE = 2
-BRANDS_PER_CYCLE = 10
-
-REQUEST_DELAY = (1.5, 3.5)
-BRAND_DELAY = (3, 7)
-DOMAIN_DELAY = (6, 12)
-CYCLE_DELAY = (60, 120)
-
-DOMAIN_COOLDOWN_ON_BLOCK = (600, 1200)
-GLOBAL_COOLDOWN_ON_MANY_BLOCKS = (900, 1800)
-
 DB_PATH = "seen.db"
 
-VINTED_BASES = [
-    "https://www.vinted.co.uk",
-    "https://www.vinted.ie",
-    "https://www.vinted.fr",
-    "https://www.vinted.es",
-    "https://www.vinted.be",
-    "https://www.vinted.nl",
+MAX_PRICE = 150
+MAX_PER_CYCLE = 35
+
+# Freshness
+MAX_ITEM_AGE_MINUTES = 180
+
+UNKNOWN_TOP_BRAND_MAX_LIKES = 2
+UNKNOWN_TOP_BRAND_MAX_POSITION = 10
+UNKNOWN_TOP_BRAND_MAX_PRICE = 120
+
+UNKNOWN_OTHER_MAX_LIKES = 1
+UNKNOWN_OTHER_MAX_POSITION = 8
+UNKNOWN_OTHER_MAX_PRICE = 100
+
+# Search
+PER_PAGE = 25
+REGIONS_PER_CYCLE = 2
+OTHER_BRANDS_PER_CYCLE = 8
+
+# Delays
+SEARCH_DELAY = (7, 13)
+DOMAIN_DELAY = (15, 30)
+CYCLE_DELAY = (90, 180)
+TELEGRAM_DELAY = (1.2, 1.8)
+
+# Anti-ban
+DOMAIN_COOLDOWN_ON_403 = (20 * 60, 45 * 60)
+GLOBAL_COOLDOWN_ON_MANY_BLOCKS = (20 * 60, 40 * 60)
+
+# Detail requests
+DETAIL_ENABLED = True
+DETAIL_ALLOWED_REGIONS = ["UK"]
+DETAIL_MAX_POSITION = 5
+DETAIL_MIN_PRE_SCORE = 78
+DETAIL_DELAY = (18, 35)
+DETAIL_COOLDOWN_ON_403 = (45 * 60, 90 * 60)
+
+# ================= REGIONS =================
+# Priority:
+# Tier 1 = checked most often
+# Tier 2 = checked often
+# Tier 3 = checked sometimes
+
+REGIONS = {
+    "UK": {
+        "base": "https://www.vinted.co.uk",
+        "tier": 1,
+        "country_codes": ["gb", "uk"],
+    },
+    "FR": {
+        "base": "https://www.vinted.fr",
+        "tier": 1,
+        "country_codes": ["fr"],
+    },
+    "ES": {
+        "base": "https://www.vinted.es",
+        "tier": 2,
+        "country_codes": ["es"],
+    },
+    "IT": {
+        "base": "https://www.vinted.it",
+        "tier": 2,
+        "country_codes": ["it"],
+    },
+    "DE": {
+        "base": "https://www.vinted.de",
+        "tier": 3,
+        "country_codes": ["de"],
+    },
+    "BE": {
+        "base": "https://www.vinted.be",
+        "tier": 3,
+        "country_codes": ["be"],
+    },
+    "NL": {
+        "base": "https://www.vinted.nl",
+        "tier": 3,
+        "country_codes": ["nl"],
+    },
+    "IE": {
+        "base": "https://www.vinted.ie",
+        "tier": 3,
+        "country_codes": ["ie"],
+    },
+}
+
+ALLOWED_COUNTRIES = [
+    "gb", "uk", "ie", "fr", "es", "it", "de", "be", "nl"
 ]
 
-ALLOWED_COUNTRIES = ["gb", "uk", "ie", "fr", "es", "be", "nl"]
-
-BASE_REGION = {
-    "https://www.vinted.co.uk": "UK",
-    "https://www.vinted.ie": "IE",
-    "https://www.vinted.fr": "FR",
-    "https://www.vinted.es": "ES",
-    "https://www.vinted.be": "BE",
-    "https://www.vinted.nl": "NL",
+BASE_TO_REGION = {
+    data["base"]: region
+    for region, data in REGIONS.items()
 }
 
 domain_blocked_until = {}
+detail_blocked_until = {}
+
+# ================= SIZES =================
 
 TOP_SIZES = ["m", "l", "xl", "48", "50", "52", "3", "4", "5"]
+
 PANTS_W = list(range(30, 35))
 PANTS_LETTER = ["m", "l"]
 PANTS_EU = ["46", "48", "50", "52"]
@@ -64,6 +126,8 @@ SHOES_US = ["9", "9.5", "10", "10.5", "11"]
 SHOES_JP_CM = ["27", "27.5", "28", "28.5"]
 
 ALLOW_ONE_SIZE = True
+
+# ================= BRANDS =================
 
 BRANDS_MAP = {
     "Insky": ["insky"],
@@ -90,7 +154,15 @@ BRANDS_MAP = {
     "West Coast Choppers": ["west coast choppers"],
     "Hysteric Glamour": ["hysteric glamour"],
     "Martine Rose": ["martine rose"],
-    "Maison Margiela": ["maison margiela", "margiela", "maison martin margiela", "margeila", "margela", "margiella", "mm6"],
+    "Maison Margiela": [
+        "maison margiela",
+        "margiela",
+        "maison martin margiela",
+        "margeila",
+        "margela",
+        "margiella",
+        "mm6",
+    ],
     "Carol Christian Poell": ["carol christian poell"],
     "5351 Pour Les Hommes": ["5351 pour les hommes", "5351 for les hommes"],
     "Demonia Cult": ["demonia cult", "demonia"],
@@ -114,19 +186,30 @@ BRANDS_MAP = {
     "Balenciaga": ["balenciaga"],
 }
 
-TARGETED_SEARCHES = list(BRANDS_MAP.keys())
-brand_queue = []
-
 TOP_BRANDS = [
     "Rick Owens",
     "Maison Margiela",
     "Raf Simons",
     "Vetements",
     "Balenciaga",
+    "Acne Studios",
+    "New Rock",
+    "Maison Mihara Yasuhiro",
+    "Helmut Lang",
     "Kiko Kostadinov",
+    "Cav Empt",
     "Boris Bidjan Saberi",
-    "Carol Christian Poell",
+    "Julius",
 ]
+
+OTHER_BRANDS = [
+    brand for brand in BRANDS_MAP.keys()
+    if brand not in TOP_BRANDS
+]
+
+brand_queue = []
+
+# ================= FILTER WORDS =================
 
 BAD_WORDS = [
     "fake", "replica", "rep ", " reps", "copy", "bootleg", "ua", "mirror", "1:1",
@@ -166,8 +249,13 @@ CLOTHING_WORDS = [
     "sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles",
 ]
 
+# ================= DATABASE =================
+
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
+
+cur.execute("PRAGMA journal_mode=WAL")
+cur.execute("PRAGMA synchronous=NORMAL")
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS seen_items (
@@ -175,74 +263,86 @@ CREATE TABLE IF NOT EXISTS seen_items (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS seen_hashes (
+    hash TEXT PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
 conn.commit()
 
-def is_seen(item_id):
-    cur.execute("SELECT id FROM seen_items WHERE id=?", (str(item_id),))
-    return cur.fetchone() is not None
+# ================= SESSIONS =================
 
-def save_seen(item_id):
-    cur.execute("INSERT OR IGNORE INTO seen_items (id) VALUES (?)", (str(item_id),))
-    conn.commit()
-
-def cleanup_seen():
-    cur.execute("""
-    DELETE FROM seen_items
-    WHERE id NOT IN (
-        SELECT id FROM seen_items
-        ORDER BY created_at DESC
-        LIMIT 10000
-    )
-    """)
-    conn.commit()
-
-session = requests.Session()
-
-USER_AGENTS = [
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+USER_AGENT_PROFILES = [
+    {
+        "name": "iphone",
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+        "lang": "en-GB,en;q=0.9",
+    },
+    {
+        "name": "mac_chrome",
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "lang": "en-GB,en;q=0.9",
+    },
+    {
+        "name": "windows_chrome",
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "lang": "en-GB,en;q=0.9",
+    },
 ]
 
-def headers(base):
+@dataclass
+class DomainSlot:
+    region: str
+    base: str
+    session: requests.Session
+    profile: dict
+    cooldown_until: float = 0
+    detail_cooldown_until: float = 0
+    health: float = 1.0
+    last_request_at: float = 0
+
+slots = {}
+
+def build_headers(base, profile):
     return {
-        "User-Agent": random.choice(USER_AGENTS),
+        "User-Agent": profile["ua"],
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Language": profile["lang"],
         "Referer": base + "/",
         "Origin": base,
         "Connection": "keep-alive",
         "DNT": "1",
     }
 
-def refresh_cookies(base):
-    try:
-        r = session.get(base, headers=headers(base), timeout=20)
-        print("REFRESH:", base, r.status_code)
-        time.sleep(random.uniform(1, 2.5))
-    except Exception as e:
-        print("REFRESH ERROR:", e)
+def build_slot(region, base):
+    profile = random.choice(USER_AGENT_PROFILES)
+    session = requests.Session()
+    session.headers.update(build_headers(base, profile))
 
-def send(msg):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    return DomainSlot(
+        region=region,
+        base=base,
+        session=session,
+        profile=profile,
+    )
 
-    for chat in CHAT_IDS:
-        try:
-            requests.post(
-                url,
-                json={
-                    "chat_id": chat,
-                    "text": msg,
-                    "disable_web_page_preview": False,
-                },
-                timeout=15
-            )
-        except Exception as e:
-            print("TG ERROR:", e)
+def init_slots():
+    for region, data in REGIONS.items():
+        slots[region] = build_slot(region, data["base"])
+
+def refresh_slot(region):
+    data = REGIONS[region]
+    slots[region] = build_slot(region, data["base"])
+
+def now_ts():
+    return time.time()
+# ================= BASIC HELPERS =================
 
 def norm(x):
-    return (x or "").lower()
+    return str(x or "").lower()
 
 def clean_price(price):
     if isinstance(price, dict):
@@ -261,28 +361,9 @@ def clean_brand_text(x):
 def has_phrase(text, phrase):
     return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
 
-def detect_brand(item):
-    brand_title = clean_brand_text(item.get("brand_title"))
-    title = clean_brand_text(item.get("title"))
-    desc = clean_brand_text(item.get("description"))
-    text = f"{brand_title} {title} {desc}"
-
-    for brand, variants in BRANDS_MAP.items():
-        brand_clean = clean_brand_text(brand)
-
-        if brand_title == brand_clean:
-            return brand
-
-        for variant in variants:
-            v = clean_brand_text(variant)
-
-            if len(v) < 5:
-                continue
-
-            if has_phrase(text, v):
-                return brand
-
-    return None
+def has_any(text, words):
+    text = norm(text)
+    return any(w in text for w in words)
 
 def full_text(item):
     return " ".join([
@@ -297,9 +378,99 @@ def full_text(item):
         str(item.get("catalog_path") or ""),
     ]).lower()
 
-def has_any(text, words):
-    text = norm(text)
-    return any(w in text for w in words)
+
+# ================= SEEN / DEDUP =================
+
+def is_seen(item_id):
+    cur.execute("SELECT id FROM seen_items WHERE id=?", (str(item_id),))
+    return cur.fetchone() is not None
+
+def save_seen(item_id):
+    cur.execute(
+        "INSERT OR IGNORE INTO seen_items (id) VALUES (?)",
+        (str(item_id),)
+    )
+    conn.commit()
+
+def item_hash(item):
+    brand = clean_brand_text(item.get("brand"))
+    title = clean_brand_text(item.get("title"))
+    size = clean_brand_text(item.get("size_title"))
+    price = int(price_float(item.get("price")))
+
+    # price bucket: убирает дубли с разницей в 1-2 евро/фунта
+    price_bucket = round(price / 5) * 5
+
+    return f"{brand}|{title}|{size}|{price_bucket}"
+
+def is_seen_hash(item):
+    h = item_hash(item)
+    cur.execute("SELECT hash FROM seen_hashes WHERE hash=?", (h,))
+    return cur.fetchone() is not None
+
+def save_seen_hash(item):
+    h = item_hash(item)
+    cur.execute(
+        "INSERT OR IGNORE INTO seen_hashes (hash) VALUES (?)",
+        (h,)
+    )
+    conn.commit()
+
+def cleanup_seen():
+    cur.execute("""
+    DELETE FROM seen_items
+    WHERE id NOT IN (
+        SELECT id FROM seen_items
+        ORDER BY created_at DESC
+        LIMIT 15000
+    )
+    """)
+
+    cur.execute("""
+    DELETE FROM seen_hashes
+    WHERE hash NOT IN (
+        SELECT hash FROM seen_hashes
+        ORDER BY created_at DESC
+        LIMIT 15000
+    )
+    """)
+
+    conn.commit()
+
+
+# ================= BRAND DETECTION =================
+
+def detect_brand(item):
+    brand_title = clean_brand_text(item.get("brand_title"))
+    title = clean_brand_text(item.get("title"))
+    desc = clean_brand_text(item.get("description"))
+
+    text = f"{brand_title} {title} {desc}"
+
+    for brand, variants in BRANDS_MAP.items():
+        brand_clean = clean_brand_text(brand)
+
+        if brand_title == brand_clean:
+            return brand
+
+        for variant in variants:
+            v = clean_brand_text(variant)
+
+            # короткие совпадения дают мусор
+            if len(v) < 5:
+                continue
+
+            if has_phrase(text, v):
+                return brand
+
+    return None
+
+
+# ================= REGION / SHIPPING =================
+
+def item_source_region(item):
+    base = item.get("source_base")
+    return BASE_TO_REGION.get(base, "?")
 
 def seller_country_code(item):
     user = item.get("user") or {}
@@ -317,119 +488,69 @@ def item_region(item):
         return "FR"
     if country == "es":
         return "ES"
+    if country == "it":
+        return "IT"
+    if country == "de":
+        return "DE"
     if country == "be":
         return "BE"
     if country == "nl":
         return "NL"
 
-    return BASE_REGION.get(item.get("source_base"), "?")
+    return item_source_region(item)
 
 def is_shipping_ok(item):
     country = seller_country_code(item)
 
+    # если страна продавца есть — фильтруем строго
     if country:
         return country in ALLOWED_COUNTRIES
 
+    # если API не дал страну — не режем, чтобы не терять вещи
     return True
 
-def parse_created_at(item):
-    for key in [
-        "created_at_ts",
-        "created_at",
-        "created_at_datetime",
-        "photo_high_resolution_created_at",
-        "created_at_timestamp",
-        "created_at_date",
-        "created_at_time",
-        "updated_at",
-        "updated_at_ts",
-    ]:
-        value = item.get(key)
 
-        if not value:
-            continue
+# ================= CATEGORY / FILTERS =================
 
-        if isinstance(value, int):
-            return datetime.fromtimestamp(value, tz=timezone.utc)
+def category(item):
+    text = full_text(item)
 
-        if isinstance(value, float):
-            return datetime.fromtimestamp(value, tz=timezone.utc)
+    if any(x in text for x in [
+        "sunglasses", "glasses", "eyewear",
+        "shades", "frames", "spectacles"
+    ]):
+        return "Eyewear"
 
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except:
-                pass
+    if "backpack" in text or "rucksack" in text:
+        return "Backpack"
 
-    return None
+    if "belt" in text:
+        return "Belt"
 
-def fetch_item_details(item):
-    item_id = item.get("id")
-    base = item.get("source_base", "https://www.vinted.co.uk")
+    if "hoodie" in text or "sweatshirt" in text:
+        return "Hoodie/Sweatshirt"
 
-    if not item_id:
-        return item
+    if any(x in text for x in [
+        "jacket", "coat", "bomber", "puffer", "parka", "vest"
+    ]):
+        return "Outerwear"
 
-    try:
-        url = f"{base}/api/v2/items/{item_id}"
-        r = session.get(url, headers=headers(base), timeout=20)
-        print(base, "DETAIL", item_id, r.status_code)
+    if any(x in text for x in ["trousers", "pants", "cargo"]):
+        return "Pants"
 
-        if r.status_code in [401, 403, 429]:
-            block_domain(base)
-            refresh_cookies(base)
-            return item
+    if "jeans" in text or "denim" in text:
+        return "Jeans"
 
-        if r.status_code != 200:
-            return item
+    if "boots" in text or "boot" in text:
+        return "Boots"
 
-        data = r.json()
-        details = data.get("item") or data
+    if any(x in text for x in ["sneakers", "trainers", "shoes"]):
+        return "Shoes"
 
-        if isinstance(details, dict):
-            item.update(details)
+    if any(x in text for x in ["shirt", "tee", "t-shirt", "top", "long sleeve"]):
+        return "Top"
 
-        return item
-
-    except Exception as e:
-        print("DETAIL ERROR:", e)
-        return item
-
-def age_minutes(item):
-    dt = parse_created_at(item)
-
-    if not dt:
-        return None
-
-    return (datetime.now(timezone.utc) - dt).total_seconds() / 60
-
-def freshness_ok(item):
-    age = age_minutes(item)
-    likes = item.get("favourite_count") or item.get("favorites_count") or 0
-    pos = item.get("pos", 999)
-    price = price_float(item.get("price"))
-
-    if age is not None:
-        return age <= MAX_ITEM_AGE_MINUTES
-
-    return (
-        likes <= UNKNOWN_AGE_MAX_LIKES
-        and pos <= UNKNOWN_AGE_MAX_POSITION
-        and price <= UNKNOWN_AGE_MAX_PRICE
-    )
-
-def freshness_text(item):
-    age = age_minutes(item)
-    likes = item.get("favourite_count") or item.get("favorites_count") or 0
-    pos = item.get("pos", "?")
-
-    if age is None:
-        return f"unknown, {likes} likes, Top {pos}"
-
-    if age < 60:
-        return f"{int(age)} min ago"
-
-    return f"{round(age / 60, 1)}h ago"
+    return "Clothing"
 
 def is_fake_or_bad(item):
     return has_any(full_text(item), BAD_WORDS)
@@ -437,11 +558,20 @@ def is_fake_or_bad(item):
 def is_women(item):
     text = full_text(item)
 
-    if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
-        return True
+    catalog = " ".join([
+        str(item.get("catalog_path") or ""),
+        str(item.get("catalog_title") or ""),
+        str(item.get("category_title") or ""),
+    ]).lower()
 
-    cat = norm(item.get("catalog_path") or item.get("catalog_title") or "")
-    if ("women" in cat or "ladies" in cat or "girls" in cat) and not has_any(text, UNISEX_WORDS):
+    # catalog_path режем жёстко
+    if any(x in catalog for x in [
+        "women", "ladies", "girls", "kids", "children", "baby"
+    ]):
+        if not has_any(text, UNISEX_WORDS):
+            return True
+
+    if has_any(text, WOMEN_WORDS) and not has_any(text, UNISEX_WORDS):
         return True
 
     return False
@@ -452,37 +582,15 @@ def is_junk(item):
 def is_mens_clothing_or_shoes(item):
     return has_any(full_text(item), CLOTHING_WORDS)
 
-def category(item):
-    text = full_text(item)
 
-    if any(x in text for x in ["sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles"]):
-        return "Eyewear"
-    if "backpack" in text or "rucksack" in text:
-        return "Backpack"
-    if "belt" in text:
-        return "Belt"
-    if "hoodie" in text or "sweatshirt" in text:
-        return "Hoodie/Sweatshirt"
-    if "jacket" in text or "coat" in text or "bomber" in text or "puffer" in text:
-        return "Outerwear"
-    if "trousers" in text or "pants" in text or "cargo" in text:
-        return "Pants"
-    if "jeans" in text or "denim" in text:
-        return "Jeans"
-    if "boots" in text or "boot" in text:
-        return "Boots"
-    if "sneakers" in text or "trainers" in text or "shoes" in text:
-        return "Shoes"
-    if "shirt" in text or "tee" in text or "t-shirt" in text or "top" in text:
-        return "Top"
-
-    return "Clothing"
+# ================= SIZE FILTER =================
 
 def size_ok(item):
     size = norm(item.get("size_title"))
     text = full_text(item)
     cat = category(item)
 
+    # аксессуары любого размера
     if cat in ["Belt", "Backpack", "Eyewear"]:
         return True
 
@@ -494,10 +602,10 @@ def size_ok(item):
 
     if cat in ["Top", "Hoodie/Sweatshirt", "Outerwear", "Clothing"]:
         return (
-            size in TOP_SIZES or
-            any(f" {s} " in f" {size} " for s in TOP_SIZES) or
-            "oversized" in text or
-            "boxy" in text
+            size in TOP_SIZES
+            or any(f" {s} " in f" {size} " for s in TOP_SIZES)
+            or "oversized" in text
+            or "boxy" in text
         )
 
     if cat in ["Pants", "Jeans"]:
@@ -505,7 +613,12 @@ def size_ok(item):
             return True
 
         for w in PANTS_W:
-            if size == str(w) or f"w{w}" in text or f" {w} " in f" {size} ":
+            if (
+                size == str(w)
+                or f"w{w}" in text
+                or f"w {w}" in text
+                or f" {w} " in f" {size} "
+            ):
                 return True
 
         return False
@@ -534,68 +647,177 @@ def size_ok(item):
 
     return False
 
+
+# ================= FRESHNESS =================
+
+def parse_created_at(item):
+    for key in [
+        "created_at_ts",
+        "created_at",
+        "created_at_datetime",
+        "photo_high_resolution_created_at",
+        "created_at_timestamp",
+        "created_at_date",
+        "updated_at",
+        "updated_at_ts",
+    ]:
+        value = item.get(key)
+
+        if not value:
+            continue
+
+        if isinstance(value, int):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+
+        if isinstance(value, float):
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except:
+                pass
+
+    return None
+
+def age_minutes(item):
+    dt = parse_created_at(item)
+
+    if not dt:
+        return None
+
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 60
+
+def freshness_ok(item):
+    age = age_minutes(item)
+    likes = item.get("favourite_count") or item.get("favorites_count") or 0
+    pos = item.get("pos", 999)
+    price = price_float(item.get("price"))
+    brand = item.get("brand")
+
+    # если время есть — строго до 3 часов
+    if age is not None:
+        return age <= MAX_ITEM_AGE_MINUTES
+
+    # если времени нет — для топ-брендов чуть мягче
+    if brand in TOP_BRANDS:
+        return (
+            likes <= UNKNOWN_TOP_BRAND_MAX_LIKES
+            and pos <= UNKNOWN_TOP_BRAND_MAX_POSITION
+            and price <= UNKNOWN_TOP_BRAND_MAX_PRICE
+        )
+
+    # остальные бренды строже
+    return (
+        likes <= UNKNOWN_OTHER_MAX_LIKES
+        and pos <= UNKNOWN_OTHER_MAX_POSITION
+        and price <= UNKNOWN_OTHER_MAX_PRICE
+    )
+
+def freshness_text(item):
+    age = age_minutes(item)
+    likes = item.get("favourite_count") or item.get("favorites_count") or 0
+    pos = item.get("pos", "?")
+
+    if age is None:
+        return f"unknown, {likes} likes, Top {pos}"
+
+    if age < 60:
+        return f"{int(age)} min ago"
+
+    return f"{round(age / 60, 1)}h ago"
+# ================= SCORE / RISK =================
+
 def risk(item):
     text = full_text(item)
     price = price_float(item.get("price"))
-    condition = norm(item.get("status") or item.get("status_title"))
+    brand = item.get("brand")
 
-    if has_any(text, ["fake", "replica", "not authentic", "not real", "no tag", "missing tag", "cut tag", "without tag"]):
+    if has_any(text, [
+        "fake", "replica", "not authentic", "not real",
+        "no tag", "missing tag", "cut tag", "without tag"
+    ]):
         return "high"
+
+    # слишком дешёвый топ-бренд — не режем, но помечаем
+    if brand in TOP_BRANDS and price <= 25:
+        return "medium"
 
     if price > 120:
         return "medium"
 
-    if "good" in condition and "very" not in condition and "new" not in condition:
-        return "medium"
-
     return "low"
 
-def score_item(item):
+def score_pre_item(item):
+    """
+    Быстрый score до detail.
+    Нужен, чтобы detail делать только для реально перспективных вещей.
+    """
     score = 0
 
     price = price_float(item.get("price"))
     brand = item.get("brand")
-    condition = norm(item.get("status") or item.get("status_title"))
     pos = item.get("pos", 999)
     title = norm(item.get("title"))
+    condition = norm(item.get("status") or item.get("status_title"))
+    likes = item.get("favourite_count") or item.get("favorites_count") or 0
 
-    if price < 50:
+    if price < 40:
         score += 35
-    elif price < 100:
-        score += 25
+    elif price < 80:
+        score += 28
+    elif price < 120:
+        score += 20
     elif price <= 150:
-        score += 15
+        score += 12
 
     if brand in TOP_BRANDS:
-        score += 20
+        score += 25
     elif brand:
         score += 10
 
-    if "new" in condition:
-        score += 10
-    elif "very" in condition:
-        score += 7
-    elif "good" in condition:
-        score += 4
-
-    if size_ok(item):
-        score += 10
-
-    if pos <= 5:
-        score += 12
+    if pos <= 3:
+        score += 18
+    elif pos <= 5:
+        score += 14
     elif pos <= 10:
         score += 8
     elif pos <= 20:
         score += 4
 
+    if likes == 0:
+        score += 5
+    elif likes <= 2:
+        score += 2
+
+    if "new" in condition:
+        score += 8
+    elif "very" in condition:
+        score += 6
+    elif "good" in condition:
+        score += 3
+
     if any(x in title for x in ["archive", "rare", "runway", "sample"]):
+        score += 6
+
+    return min(score, 100)
+
+def score_item(item):
+    score = score_pre_item(item)
+
+    # небольшой бонус за точный размер
+    if size_ok(item):
         score += 5
 
-    likes = item.get("favourite_count") or item.get("favorites_count") or 0
-    if likes == 0:
-        score += 3
-    elif likes <= 2:
-        score += 1
+    # если есть реальное время и вещь очень свежая
+    age = age_minutes(item)
+    if age is not None:
+        if age <= 30:
+            score += 8
+        elif age <= 60:
+            score += 5
+        elif age <= 120:
+            score += 2
 
     return min(score, 100)
 
@@ -609,7 +831,33 @@ def color(score):
 def is_meat(item):
     price = price_float(item.get("price"))
     score = item["score"]
-    return score >= 90 or (price < 60 and score >= 80)
+    brand = item.get("brand")
+
+    if brand in TOP_BRANDS and score >= 82:
+        return True
+
+    return score >= 88 or (price <= 50 and score >= 78)
+
+
+# ================= TELEGRAM =================
+
+def send(msg):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    for chat in CHAT_IDS:
+        try:
+            requests.post(
+                url,
+                json={
+                    "chat_id": chat,
+                    "text": msg,
+                    "disable_web_page_preview": False,
+                },
+                timeout=15
+            )
+            time.sleep(random.uniform(*TELEGRAM_DELAY))
+        except Exception as e:
+            print("TG ERROR:", e)
 
 def format_msg(item):
     prefix = "!!! MEAT | " if is_meat(item) else ""
@@ -621,13 +869,17 @@ def format_msg(item):
     size = item.get("size_title") or "?"
     condition = item.get("status") or item.get("status_title") or "?"
     pos = item.get("pos", "?")
-    link = item.get("url") or f"{item.get('source_base', 'https://www.vinted.co.uk')}/items/{item.get('id')}"
+    source_region = item_source_region(item)
+    region = item_region(item)
+
+    link = item.get("url") or f"{item.get('source_base')}/items/{item.get('id')}"
 
     msg = f"{prefix}{color(score)} {score}/100\n\n"
     msg += f"Brand: {brand}\n"
     msg += f"Name: {title}\n\n"
     msg += f"Price: £{int(price)}\n"
-    msg += f"Region: {item_region(item)}\n"
+    msg += f"Region: {region}\n"
+    msg += f"Source: {source_region}\n"
     msg += f"Size: {size}\n"
     msg += f"Condition: {condition}\n"
     msg += f"Category: {category(item)}\n"
@@ -638,239 +890,475 @@ def format_msg(item):
 
     return msg
 
-def get_next_brands():
-    global brand_queue
 
-    if len(brand_queue) < BRANDS_PER_CYCLE:
-        brand_queue = TARGETED_SEARCHES[:]
-        random.shuffle(brand_queue)
+# ================= REGION ROTATION =================
 
-    selected = brand_queue[:BRANDS_PER_CYCLE]
-    brand_queue = brand_queue[BRANDS_PER_CYCLE:]
+region_cycle_counter = 0
 
+def region_weight(region):
+    tier = REGIONS[region]["tier"]
+
+    if tier == 1:
+        return 6
+    if tier == 2:
+        return 3
+    return 1
+
+def active_regions():
+    now = now_ts()
+    result = []
+
+    for region, slot in slots.items():
+        if slot.cooldown_until <= now:
+            result.append(region)
+
+    return result
+
+def choose_regions():
+    """
+    Выбирает 2 региона за цикл.
+    Tier 1 попадает чаще, Tier 2 иногда, Tier 3 редко.
+    """
+    available = active_regions()
+
+    if not available:
+        return []
+
+    # если доступных меньше лимита — берём сколько есть
+    if len(available) <= REGIONS_PER_CYCLE:
+        random.shuffle(available)
+        return available
+
+    weighted = []
+
+    for region in available:
+        weighted.extend([region] * region_weight(region))
+
+    selected = []
+
+    attempts = 0
+    while len(selected) < REGIONS_PER_CYCLE and attempts < 50:
+        r = random.choice(weighted)
+        if r not in selected:
+            selected.append(r)
+        attempts += 1
+
+    # страховка
+    if len(selected) < REGIONS_PER_CYCLE:
+        rest = [r for r in available if r not in selected]
+        random.shuffle(rest)
+        selected.extend(rest[:REGIONS_PER_CYCLE - len(selected)])
+
+    random.shuffle(selected)
     return selected
 
-def domain_is_blocked(base):
-    until = domain_blocked_until.get(base, 0)
-    return time.time() < until
 
-def block_domain(base):
-    cooldown = random.randint(*DOMAIN_COOLDOWN_ON_BLOCK)
-    domain_blocked_until[base] = time.time() + cooldown
-    print(f"DOMAIN COOLDOWN: {base} for {cooldown} sec")
+# ================= BRAND ROTATION =================
 
-def active_domains():
-    now = time.time()
-    return [
-        base for base in VINTED_BASES
-        if domain_blocked_until.get(base, 0) <= now
-    ]
+def get_next_brands():
+    """
+    TOP_BRANDS каждый цикл.
+    OTHER_BRANDS — по очереди.
+    """
+    global brand_queue
 
-def active_domains_count():
-    return len(active_domains())
+    if len(brand_queue) < OTHER_BRANDS_PER_CYCLE:
+        brand_queue = OTHER_BRANDS[:]
+        random.shuffle(brand_queue)
+
+    selected_other = brand_queue[:OTHER_BRANDS_PER_CYCLE]
+    brand_queue = brand_queue[OTHER_BRANDS_PER_CYCLE:]
+
+    final = TOP_BRANDS[:] + selected_other
+    final = list(dict.fromkeys(final))
+    random.shuffle(final)
+
+    return final
+
+
+# ================= COOLDOWNS =================
+
+def cooldown_slot(region, reason="unknown"):
+    slot = slots[region]
+    cooldown = random.randint(*DOMAIN_COOLDOWN_ON_403)
+    slot.cooldown_until = now_ts() + cooldown
+    slot.health = max(0.1, slot.health * 0.6)
+
+    print(f"DOMAIN COOLDOWN: {region} for {cooldown} sec | reason={reason}")
+
+def cooldown_detail(region, reason="detail"):
+    slot = slots[region]
+    cooldown = random.randint(*DETAIL_COOLDOWN_ON_403)
+    slot.detail_cooldown_until = now_ts() + cooldown
+    slot.health = max(0.1, slot.health * 0.75)
+
+    print(f"DETAIL COOLDOWN: {region} for {cooldown} sec | reason={reason}")
 
 def global_cooldown_if_needed():
-    global session
+    active = active_regions()
 
-    if active_domains_count() > 1:
+    if len(active) >= 2:
         return
 
-    sleep_time = random.randint(*GLOBAL_COOLDOWN_ON_MANY_BLOCKS)
-    print("GLOBAL COOLDOWN:", sleep_time)
+    cooldown = random.randint(*GLOBAL_COOLDOWN_ON_MANY_BLOCKS)
+    print("GLOBAL COOLDOWN:", cooldown)
 
-    session = requests.Session()
-    time.sleep(sleep_time)
+    time.sleep(cooldown)
 
-    for base in VINTED_BASES:
-        domain_blocked_until[base] = 0
-        refresh_cookies(base)
+    # после глобальной паузы пересобираем сессии
+    for region in REGIONS.keys():
+        refresh_slot(region)
 
-def fetch_search(base, search):
-    if domain_is_blocked(base):
-        print("SKIP BLOCKED DOMAIN:", base)
+
+# ================= REQUESTS =================
+
+def controlled_sleep(slot, delay_range):
+    """
+    Не даёт одному региону стрелять слишком часто.
+    """
+    lo, hi = delay_range
+    gap = random.uniform(lo, hi)
+
+    wait = max(0, slot.last_request_at + gap - now_ts())
+    if wait > 0:
+        time.sleep(wait)
+
+    slot.last_request_at = now_ts()
+
+def fetch_search(region, search):
+    slot = slots[region]
+    base = slot.base
+
+    if slot.cooldown_until > now_ts():
+        print("SKIP BLOCKED REGION:", region)
         return []
+
+    controlled_sleep(slot, SEARCH_DELAY)
+
+    max_price = MAX_PRICE if search in TOP_BRANDS else 120
 
     url = f"{base}/api/v2/catalog/items"
 
     params = {
         "search_text": search,
-        "price_to": MAX_PRICE,
+        "price_to": max_price,
         "per_page": PER_PAGE,
         "page": 1,
         "order": "newest_first",
     }
 
     try:
-        r = session.get(url, params=params, headers=headers(base), timeout=25)
-        print(base, "SEARCH", search, r.status_code)
+        r = slot.session.get(url, params=params, timeout=25)
+        print(region, "SEARCH", search, r.status_code)
 
-        if r.status_code in [401, 403, 429]:
-            block_domain(base)
-            refresh_cookies(base)
+        if r.status_code == 403:
+            cooldown_slot(region, "403 search")
+            return []
+
+        if r.status_code == 429:
+            cooldown_slot(region, "429 search")
             return []
 
         if r.status_code != 200:
             return []
 
-        raw_items = r.json().get("items", [])
+        data = r.json()
+        raw_items = data.get("items", [])
         items = []
 
         for i, item in enumerate(raw_items):
             item["pos"] = i + 1
             item["source_base"] = base
-            item["source_region"] = BASE_REGION.get(base, "?")
+            item["source_region"] = region
             items.append(item)
 
+        slot.health = min(1.0, slot.health + 0.02)
         return items
 
     except Exception as e:
-        print("SEARCH ERROR:", e)
+        print("SEARCH ERROR:", region, e)
+        slot.health = max(0.2, slot.health * 0.9)
         return []
 
-def run():
-    print("FINAL BRAND BOT WITH DETAILS FRESHNESS STARTED")
-    send("FINAL BRAND BOT WITH DETAILS FRESHNESS STARTED")
+def should_fetch_detail(item):
+    if not DETAIL_ENABLED:
+        return False
 
-    for base in VINTED_BASES:
-        refresh_cookies(base)
+    region = item_source_region(item)
+    slot = slots.get(region)
+
+    if not slot:
+        return False
+
+    if region not in DETAIL_ALLOWED_REGIONS:
+        return False
+
+    if slot.detail_cooldown_until > now_ts():
+        return False
+
+    if slot.cooldown_until > now_ts():
+        return False
+
+    if item.get("pos", 999) > DETAIL_MAX_POSITION:
+        return False
+
+    if item.get("score_pre", 0) < DETAIL_MIN_PRE_SCORE:
+        return False
+
+    likes = item.get("favourite_count") or item.get("favorites_count") or 0
+    if likes > 3:
+        return False
+
+    return True
+
+def fetch_item_details(item):
+    region = item_source_region(item)
+    slot = slots.get(region)
+
+    if not slot:
+        return item
+
+    if not should_fetch_detail(item):
+        return item
+
+    controlled_sleep(slot, DETAIL_DELAY)
+
+    item_id = item.get("id")
+    if not item_id:
+        return item
+
+    url = f"{slot.base}/api/v2/items/{item_id}"
+
+    try:
+        r = slot.session.get(url, timeout=25)
+        print(region, "DETAIL", item_id, r.status_code)
+
+        if r.status_code == 403:
+            cooldown_detail(region, "403 detail")
+            return item
+
+        if r.status_code == 429:
+            cooldown_detail(region, "429 detail")
+            return item
+
+        if r.status_code != 200:
+            return item
+
+        data = r.json()
+        details = data.get("item") or data
+
+        if isinstance(details, dict):
+            item.update(details)
+
+        slot.health = min(1.0, slot.health + 0.02)
+        return item
+
+    except Exception as e:
+        print("DETAIL ERROR:", region, e)
+        slot.health = max(0.2, slot.health * 0.9)
+        return item
+    # ================= MAIN PROCESSING =================
+
+def process_items(collected):
+    processed = []
+
+    stats = {
+        "collected": len(collected),
+        "seen": 0,
+        "hash_dup": 0,
+        "price": 0,
+        "brand": 0,
+        "shipping": 0,
+        "fake": 0,
+        "women": 0,
+        "junk": 0,
+        "category": 0,
+        "size": 0,
+        "freshness": 0,
+        "passed": 0,
+    }
+
+    for item in collected:
+        item_id = str(item.get("id") or "")
+
+        if not item_id or is_seen(item_id):
+            stats["seen"] += 1
+            continue
+
+        if price_float(item.get("price")) > MAX_PRICE:
+            stats["price"] += 1
+            continue
+
+        brand = detect_brand(item)
+        if not brand:
+            stats["brand"] += 1
+            continue
+
+        item["brand"] = brand
+
+        if is_seen_hash(item):
+            stats["hash_dup"] += 1
+            continue
+
+        if not is_shipping_ok(item):
+            stats["shipping"] += 1
+            continue
+
+        if is_fake_or_bad(item):
+            stats["fake"] += 1
+            continue
+
+        if is_women(item):
+            stats["women"] += 1
+            continue
+
+        if is_junk(item):
+            stats["junk"] += 1
+            continue
+
+        if not is_mens_clothing_or_shoes(item):
+            stats["category"] += 1
+            continue
+
+        if not size_ok(item):
+            stats["size"] += 1
+            continue
+
+        item["score_pre"] = score_pre_item(item)
+
+        # detail только для короткого shortlist
+        item = fetch_item_details(item)
+
+        if not freshness_ok(item):
+            stats["freshness"] += 1
+            continue
+
+        item["score"] = score_item(item)
+
+        processed.append(item)
+        stats["passed"] += 1
+
+    return processed, stats
+
+
+def sort_items(items):
+    return sorted(
+        items,
+        key=lambda x: (
+            x.get("pos", 999),
+            -int(is_meat(x)),
+            -x.get("score", 0),
+            random.random()
+        )
+    )
+
+
+def send_items(items):
+    sent = 0
+
+    for item in items:
+        if sent >= MAX_PER_CYCLE:
+            break
+
+        item_id = str(item.get("id") or "")
+
+        if not item_id or is_seen(item_id):
+            continue
+
+        if is_seen_hash(item):
+            continue
+
+        save_seen(item_id)
+        save_seen_hash(item)
+
+        msg = format_msg(item)
+        print(msg)
+        send(msg)
+
+        sent += 1
+
+    return sent
+
+
+# ================= MAIN LOOP =================
+
+def run():
+    print("FINAL SMART VINTED BOT STARTED")
+    send("FINAL SMART VINTED BOT STARTED")
+
+    init_slots()
 
     cycle = 0
 
     while True:
         try:
             cycle += 1
+            print("\n==============================")
+            print("CYCLE:", cycle)
+            print("==============================")
+
             global_cooldown_if_needed()
+
+            selected_regions = choose_regions()
+            selected_brands = get_next_brands()
+
+            print("REGIONS:", selected_regions)
+            print("BRANDS:", selected_brands)
+
+            if not selected_regions:
+                print("NO ACTIVE REGIONS")
+                time.sleep(120)
+                continue
 
             collected = []
 
-            bases = active_domains()
-            random.shuffle(bases)
-            bases = bases[:DOMAINS_PER_CYCLE]
+            for region in selected_regions:
+                slot = slots[region]
 
-            if not bases:
-                print("NO ACTIVE DOMAINS")
-                time.sleep(60)
-                continue
+                if slot.cooldown_until > now_ts():
+                    print("SKIP REGION COOLDOWN:", region)
+                    continue
 
-            targeted = get_next_brands()
+                print("START REGION:", region)
 
-            for base in bases:
-                for search in targeted:
-                    items = fetch_search(base, search)
+                for brand in selected_brands:
+                    items = fetch_search(region, brand)
                     collected.extend(items)
-                    time.sleep(random.uniform(*BRAND_DELAY))
 
-                time.sleep(random.uniform(*DOMAIN_DELAY))
+                    # маленький шанс длинной паузы, чтобы не быть роботом
+                    if random.random() < 0.08:
+                        extra = random.randint(25, 70)
+                        print("BURST PAUSE:", extra)
+                        time.sleep(extra)
 
-            processed = []
+                domain_pause = random.randint(*DOMAIN_DELAY)
+                print("DOMAIN PAUSE:", domain_pause)
+                time.sleep(domain_pause)
 
-            stats = {
-                "collected": len(collected),
-                "seen": 0,
-                "price": 0,
-                "brand": 0,
-                "shipping": 0,
-                "fake": 0,
-                "women": 0,
-                "junk": 0,
-                "category": 0,
-                "size": 0,
-                "freshness": 0,
-                "passed": 0,
-            }
-
-            for item in collected:
-                item_id = str(item.get("id"))
-
-                if not item_id or is_seen(item_id):
-                    stats["seen"] += 1
-                    continue
-
-                if price_float(item.get("price")) > MAX_PRICE:
-                    stats["price"] += 1
-                    continue
-
-                brand = detect_brand(item)
-                if not brand:
-                    stats["brand"] += 1
-                    continue
-
-                item["brand"] = brand
-
-                if not is_shipping_ok(item):
-                    stats["shipping"] += 1
-                    continue
-
-                if is_fake_or_bad(item):
-                    stats["fake"] += 1
-                    continue
-
-                if is_women(item):
-                    stats["women"] += 1
-                    continue
-
-                if is_junk(item):
-                    stats["junk"] += 1
-                    continue
-
-                if not is_mens_clothing_or_shoes(item):
-                    stats["category"] += 1
-                    continue
-
-                if not size_ok(item):
-                    stats["size"] += 1
-                    continue
-
-                item = fetch_item_details(item)
-
-                if not freshness_ok(item):
-                    stats["freshness"] += 1
-                    continue
-
-                item["score"] = score_item(item)
-                processed.append(item)
-                stats["passed"] += 1
+            processed, stats = process_items(collected)
 
             print("FILTER STATS:", stats)
 
-            processed.sort(
-                key=lambda x: (
-                    x.get("pos", 999),
-                    -x["score"],
-                    random.random()
-                )
-            )
+            processed = sort_items(processed)
+            sent = send_items(processed)
 
-            sent = 0
-
-            for item in processed:
-                if sent >= MAX_PER_CYCLE:
-                    break
-
-                item_id = str(item.get("id"))
-
-                if is_seen(item_id):
-                    continue
-
-                save_seen(item_id)
-
-                msg = format_msg(item)
-                print(msg)
-                send(msg)
-
-                sent += 1
-                time.sleep(random.uniform(*REQUEST_DELAY))
+            print("CYCLE DONE. SENT:", sent)
 
             if cycle % 20 == 0:
                 cleanup_seen()
 
             sleep_time = random.randint(*CYCLE_DELAY)
-            print("CYCLE DONE. SENT:", sent, "SLEEP:", sleep_time)
+            print("SLEEP:", sleep_time)
             time.sleep(sleep_time)
+
+        except KeyboardInterrupt:
+            print("STOPPED BY USER")
+            break
 
         except Exception as e:
             print("MAIN ERROR:", e)
-            time.sleep(30)
+            time.sleep(60)
+
 
 if __name__ == "__main__":
     run()
