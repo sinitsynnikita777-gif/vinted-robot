@@ -16,28 +16,38 @@ DB_PATH = "seen.db"
 MAX_PRICE = 150
 MAX_PER_CYCLE = 35
 
-MAX_ITEM_AGE_MINUTES = 180
+# Freshness
+MAX_ITEM_AGE_MINUTES = 60
 
-UNKNOWN_TOP_BRAND_MAX_LIKES = 2
-UNKNOWN_TOP_BRAND_MAX_POSITION = 10
-UNKNOWN_TOP_BRAND_MAX_PRICE = 120
+UNKNOWN_TOP_BRAND_MAX_LIKES = 1
+UNKNOWN_TOP_BRAND_MAX_POSITION = 15
+UNKNOWN_TOP_BRAND_MAX_PRICE = 150
 
 UNKNOWN_OTHER_MAX_LIKES = 1
 UNKNOWN_OTHER_MAX_POSITION = 8
-UNKNOWN_OTHER_MAX_PRICE = 100
+UNKNOWN_OTHER_MAX_PRICE = 150
 
+# Search
+MEN_CATALOG_ID = "5"
 PER_PAGE = 25
+LATEST_FLOW_PER_PAGE = 60
+LATEST_FLOW_ENABLED = True
+BRAND_SEARCH_ENABLED = True
+
 REGIONS_PER_CYCLE = 2
 OTHER_BRANDS_PER_CYCLE = 8
 
+# Delays
 SEARCH_DELAY = (7, 13)
 DOMAIN_DELAY = (15, 30)
 CYCLE_DELAY = (90, 180)
 TELEGRAM_DELAY = (1.2, 1.8)
 
+# Anti-ban
 DOMAIN_COOLDOWN_ON_403 = (20 * 60, 45 * 60)
 GLOBAL_COOLDOWN_ON_MANY_BLOCKS = (20 * 60, 40 * 60)
 
+# Detail requests
 DETAIL_ENABLED = True
 DETAIL_ALLOWED_REGIONS = ["UK"]
 DETAIL_MAX_POSITION = 5
@@ -109,8 +119,13 @@ BRANDS_MAP = {
     "Hysteric Glamour": ["hysteric glamour"],
     "Martine Rose": ["martine rose"],
     "Maison Margiela": [
-        "maison margiela", "margiela", "maison martin margiela",
-        "margeila", "margela", "margiella", "mm6"
+        "maison margiela",
+        "margiela",
+        "maison martin margiela",
+        "margeila",
+        "margela",
+        "margiella",
+        "mm6",
     ],
     "Carol Christian Poell": ["carol christian poell"],
     "5351 Pour Les Hommes": ["5351 pour les hommes", "5351 for les hommes"],
@@ -151,7 +166,11 @@ TOP_BRANDS = [
     "Julius",
 ]
 
-OTHER_BRANDS = [brand for brand in BRANDS_MAP.keys() if brand not in TOP_BRANDS]
+OTHER_BRANDS = [
+    brand for brand in BRANDS_MAP.keys()
+    if brand not in TOP_BRANDS
+]
+
 brand_queue = []
 
 # ================= FILTER WORDS =================
@@ -174,7 +193,9 @@ WOMEN_WORDS = [
     "mini dress", "petite", "women's fit", "female fit",
 ]
 
-UNISEX_WORDS = ["unisex", "mens", "men", "male", "oversized", "boxy", "boyfriend fit"]
+UNISEX_WORDS = [
+    "unisex", "mens", "men", "male", "oversized", "boxy", "boyfriend fit"
+]
 
 JUNK_WORDS = [
     "book", "books", "magazine", "poster", "sticker", "cd", "dvd", "vinyl",
@@ -190,7 +211,16 @@ CLOTHING_WORDS = [
     "jeans", "denim", "shorts", "trainers", "sneakers", "boots", "shoes",
     "backpack", "rucksack", "belt",
     "sunglasses", "glasses", "eyewear", "shades", "frames", "spectacles",
+
+    "zip", "zipper", "zip up", "half zip",
+    "sweat", "pullover", "overshirt",
+    "blazer", "gilet", "shell", "windbreaker",
+    "leather", "fleece",
+    "loafer", "derby", "sandals",
+    "bag", "crossbody", "messenger", "shoulder bag",
+    "cap", "beanie", "hat",
 ]
+
 # ================= DATABASE =================
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -220,17 +250,20 @@ conn.commit()
 USER_AGENT_PROFILES = [
     {
         "name": "iphone",
-        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
         "lang": "en-GB,en;q=0.9",
     },
     {
         "name": "mac_chrome",
-        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "lang": "en-GB,en;q=0.9",
     },
     {
         "name": "windows_chrome",
-        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "lang": "en-GB,en;q=0.9",
     },
 ]
@@ -282,7 +315,6 @@ def refresh_slot(region):
 
 def now_ts():
     return time.time()
-
 # ================= BASIC HELPERS =================
 
 def norm(x):
@@ -321,6 +353,7 @@ def full_text(item):
         str(item.get("category_title") or ""),
         str(item.get("catalog_path") or ""),
     ]).lower()
+
 
 # ================= SEEN / DEDUP =================
 
@@ -378,6 +411,7 @@ def cleanup_seen():
 
     conn.commit()
 
+
 # ================= BRAND DETECTION =================
 
 def detect_brand(item):
@@ -403,6 +437,7 @@ def detect_brand(item):
                 return brand
 
     return None
+
 
 # ================= REGION / SHIPPING =================
 
@@ -444,6 +479,8 @@ def is_shipping_ok(item):
         return country in ALLOWED_COUNTRIES
 
     return True
+
+
 # ================= CATEGORY / FILTERS =================
 
 def category(item):
@@ -461,11 +498,21 @@ def category(item):
     if "belt" in text:
         return "Belt"
 
-    if "hoodie" in text or "sweatshirt" in text:
+    if any(x in text for x in ["bag", "crossbody", "messenger", "shoulder bag"]):
+        return "Bag"
+
+    if any(x in text for x in ["cap", "beanie", "hat"]):
+        return "Hat"
+
+    if any(x in text for x in [
+        "hoodie", "sweatshirt", "zip", "zipper",
+        "zip up", "half zip", "pullover", "sweat"
+    ]):
         return "Hoodie/Sweatshirt"
 
     if any(x in text for x in [
-        "jacket", "coat", "bomber", "puffer", "parka", "vest"
+        "jacket", "coat", "bomber", "puffer", "parka", "vest",
+        "blazer", "gilet", "shell", "windbreaker", "leather", "fleece"
     ]):
         return "Outerwear"
 
@@ -478,18 +525,21 @@ def category(item):
     if "boots" in text or "boot" in text:
         return "Boots"
 
-    if any(x in text for x in ["sneakers", "trainers", "shoes"]):
+    if any(x in text for x in [
+        "sneakers", "trainers", "shoes",
+        "loafer", "derby", "sandals"
+    ]):
         return "Shoes"
 
-    if any(x in text for x in ["shirt", "tee", "t-shirt", "top", "long sleeve"]):
+    if any(x in text for x in [
+        "shirt", "tee", "t-shirt", "top", "long sleeve", "overshirt"
+    ]):
         return "Top"
 
     return "Clothing"
 
-
 def is_fake_or_bad(item):
     return has_any(full_text(item), BAD_WORDS)
-
 
 def is_women(item):
     text = full_text(item)
@@ -511,10 +561,8 @@ def is_women(item):
 
     return False
 
-
 def is_junk(item):
     return has_any(full_text(item), JUNK_WORDS)
-
 
 def is_mens_clothing_or_shoes(item):
     return has_any(full_text(item), CLOTHING_WORDS)
@@ -616,7 +664,6 @@ def parse_created_at(item):
 
     return None
 
-
 def age_minutes(item):
     dt = parse_created_at(item)
 
@@ -625,38 +672,86 @@ def age_minutes(item):
 
     return (datetime.now(timezone.utc) - dt).total_seconds() / 60
 
-
-def freshness_ok(item):
+def freshness_score(item):
     age = age_minutes(item)
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     pos = item.get("pos", 999)
-    price = price_float(item.get("price"))
     brand = item.get("brand")
+    source_mode = item.get("source_mode", "brand")
+
+    if age is not None:
+        if age <= 15:
+            return 100
+        if age <= 30:
+            return 90
+        if age <= 60:
+            return 80
+        if age <= 120:
+            return 55
+        return 0
+
+    score = 0
+
+    if source_mode == "latest":
+        score += 35
+    else:
+        score += 20
+
+    if pos <= 3:
+        score += 35
+    elif pos <= 6:
+        score += 25
+    elif pos <= 10:
+        score += 15
+    elif pos <= 15:
+        score += 5
+
+    if likes == 0:
+        score += 25
+    elif likes == 1:
+        score += 15
+    elif likes <= 3:
+        score += 5
+
+    if brand in TOP_BRANDS:
+        score += 10
+
+    return min(score, 100)
+
+def freshness_ok(item):
+    age = age_minutes(item)
+    brand = item.get("brand")
+    pos = item.get("pos", 999)
+    likes = item.get("favourite_count") or item.get("favorites_count") or 0
+    price = price_float(item.get("price"))
 
     if age is not None:
         return age <= MAX_ITEM_AGE_MINUTES
 
+    if price > MAX_PRICE:
+        return False
+
     if brand in TOP_BRANDS:
         return (
-            likes <= UNKNOWN_TOP_BRAND_MAX_LIKES
+            freshness_score(item) >= 65
             and pos <= UNKNOWN_TOP_BRAND_MAX_POSITION
-            and price <= UNKNOWN_TOP_BRAND_MAX_PRICE
+            and likes <= UNKNOWN_TOP_BRAND_MAX_LIKES
         )
 
     return (
-        likes <= UNKNOWN_OTHER_MAX_LIKES
+        freshness_score(item) >= 70
         and pos <= UNKNOWN_OTHER_MAX_POSITION
-        and price <= UNKNOWN_OTHER_MAX_PRICE
+        and likes <= UNKNOWN_OTHER_MAX_LIKES
     )
-
 
 def freshness_text(item):
     age = age_minutes(item)
     likes = item.get("favourite_count") or item.get("favorites_count") or 0
     pos = item.get("pos", "?")
+    fs = freshness_score(item)
 
     if age is None:
-        return f"unknown, {likes} likes, Top {pos}"
+        return f"unknown, {likes} likes, Top {pos}, fresh-score {fs}"
 
     if age < 60:
         return f"{int(age)} min ago"
@@ -684,7 +779,6 @@ def risk(item):
         return "medium"
 
     return "low"
-
 
 def score_pre_item(item):
     score = 0
@@ -734,8 +828,15 @@ def score_pre_item(item):
     if any(x in title for x in ["archive", "rare", "runway", "sample"]):
         score += 6
 
-    return min(score, 100)
+    fs = freshness_score(item)
+    if fs >= 90:
+        score += 10
+    elif fs >= 75:
+        score += 6
+    elif fs >= 60:
+        score += 3
 
+    return min(score, 100)
 
 def score_item(item):
     score = score_pre_item(item)
@@ -754,14 +855,12 @@ def score_item(item):
 
     return min(score, 100)
 
-
 def color(score):
     if score >= 80:
         return "🟢"
     if score >= 50:
         return "🟡"
     return "🔴"
-
 
 def is_meat(item):
     price = price_float(item.get("price"))
@@ -794,7 +893,6 @@ def send(msg):
         except Exception as e:
             print("TG ERROR:", e)
 
-
 def format_msg(item):
     prefix = "!!! MEAT | " if is_meat(item) else ""
 
@@ -807,6 +905,7 @@ def format_msg(item):
     pos = item.get("pos", "?")
     source_region = item_source_region(item)
     region = item_region(item)
+    source_mode = item.get("source_mode", "?")
 
     link = item.get("url") or f"{item.get('source_base')}/items/{item.get('id')}"
 
@@ -815,7 +914,7 @@ def format_msg(item):
     msg += f"Name: {title}\n\n"
     msg += f"Price: £{int(price)}\n"
     msg += f"Region: {region}\n"
-    msg += f"Source: {source_region}\n"
+    msg += f"Source: {source_region} / {source_mode}\n"
     msg += f"Size: {size}\n"
     msg += f"Condition: {condition}\n"
     msg += f"Category: {category(item)}\n"
@@ -859,6 +958,7 @@ def choose_regions():
         return available
 
     weighted = []
+
     for region in available:
         weighted.extend([region] * region_weight(region))
 
@@ -974,7 +1074,65 @@ def warmup_region(region):
         return False
 
 
-# ================= FETCH SEARCH / DETAIL =================
+# ================= FETCH LATEST / SEARCH / DETAIL =================
+
+def fetch_latest(region):
+    slot = slots[region]
+    base = slot.base
+
+    if slot.cooldown_until > now_ts():
+        print("SKIP BLOCKED REGION:", region)
+        return []
+
+    if not warmup_region(region):
+        print("SKIP LATEST AFTER WARMUP FAIL:", region)
+        return []
+
+    controlled_sleep(slot, SEARCH_DELAY)
+
+    url = f"{base}/api/v2/catalog/items"
+
+    params = {
+        "catalog_ids": MEN_CATALOG_ID,
+        "price_to": MAX_PRICE,
+        "per_page": LATEST_FLOW_PER_PAGE,
+        "page": 1,
+        "order": "newest_first",
+    }
+
+    try:
+        r = slot.session.get(url, params=params, timeout=25)
+        print(region, "LATEST", r.status_code)
+
+        if r.status_code in [401, 403]:
+            cooldown_slot(region, f"{r.status_code} latest")
+            return []
+
+        if r.status_code == 429:
+            cooldown_slot(region, "429 latest")
+            return []
+
+        if r.status_code != 200:
+            return []
+
+        raw_items = r.json().get("items", [])
+        items = []
+
+        for i, item in enumerate(raw_items):
+            item["pos"] = i + 1
+            item["source_base"] = base
+            item["source_region"] = region
+            item["source_mode"] = "latest"
+            items.append(item)
+
+        slot.health = min(1.0, slot.health + 0.02)
+        return items
+
+    except Exception as e:
+        print("LATEST ERROR:", region, e)
+        slot.health = max(0.2, slot.health * 0.9)
+        return []
+
 
 def fetch_search(region, search):
     slot = slots[region]
@@ -990,13 +1148,12 @@ def fetch_search(region, search):
 
     controlled_sleep(slot, SEARCH_DELAY)
 
-    max_price = MAX_PRICE if search in TOP_BRANDS else 120
-
     url = f"{base}/api/v2/catalog/items"
 
     params = {
         "search_text": search,
-        "price_to": max_price,
+        "catalog_ids": MEN_CATALOG_ID,
+        "price_to": MAX_PRICE,
         "per_page": PER_PAGE,
         "page": 1,
         "order": "newest_first",
@@ -1017,14 +1174,14 @@ def fetch_search(region, search):
         if r.status_code != 200:
             return []
 
-        data = r.json()
-        raw_items = data.get("items", [])
+        raw_items = r.json().get("items", [])
         items = []
 
         for i, item in enumerate(raw_items):
             item["pos"] = i + 1
             item["source_base"] = base
             item["source_region"] = region
+            item["source_mode"] = "brand"
             items.append(item)
 
         slot.health = min(1.0, slot.health + 0.02)
@@ -1209,6 +1366,7 @@ def sort_items(items):
             x.get("pos", 999),
             -int(is_meat(x)),
             -x.get("score", 0),
+            -freshness_score(x),
             random.random()
         )
     )
@@ -1287,14 +1445,19 @@ def run():
                     print("SKIP REGION AFTER WARMUP FAIL:", region)
                     continue
 
-                for brand in selected_brands:
-                    items = fetch_search(region, brand)
-                    collected.extend(items)
+                if LATEST_FLOW_ENABLED:
+                    latest_items = fetch_latest(region)
+                    collected.extend(latest_items)
 
-                    if random.random() < 0.08:
-                        extra = random.randint(25, 70)
-                        print("BURST PAUSE:", extra)
-                        time.sleep(extra)
+                if BRAND_SEARCH_ENABLED:
+                    for brand in selected_brands:
+                        items = fetch_search(region, brand)
+                        collected.extend(items)
+
+                        if random.random() < 0.08:
+                            extra = random.randint(25, 70)
+                            print("BURST PAUSE:", extra)
+                            time.sleep(extra)
 
                 domain_pause = random.randint(*DOMAIN_DELAY)
                 print("DOMAIN PAUSE:", domain_pause)
